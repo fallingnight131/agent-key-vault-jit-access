@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -106,6 +107,11 @@ func (runtime *Runtime) authenticateAndDecode(response http.ResponseWriter, requ
 	decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 4096))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil || input.RequestID == "" || input.TaskID == "" {
+		writePublicJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_REQUEST"})
+		return agent.Principal{}, executeRequest{}, false
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
 		writePublicJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_REQUEST"})
 		return agent.Principal{}, executeRequest{}, false
 	}

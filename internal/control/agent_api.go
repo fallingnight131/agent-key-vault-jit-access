@@ -12,6 +12,7 @@ import (
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/catalog"
 	"github.com/fallingnight/akv/internal/domain"
+	"github.com/fallingnight/akv/internal/lifecycle"
 	"github.com/fallingnight/akv/internal/task"
 )
 
@@ -40,9 +41,13 @@ type AuthorizationStatus struct {
 	ExecutionStatus  *string    `json:"execution_status,omitempty"`
 	ReclaimStatus    *string    `json:"reclaim_status,omitempty"`
 	ErrorCode        *string    `json:"error_code,omitempty"`
+	OperationKind    string     `json:"operation_kind"`
 }
 type StatusReader interface {
 	GetAuthorizationStatus(context.Context, string, string) (AuthorizationStatus, error)
+}
+type AgentRevoker interface {
+	RevokeAgent(context.Context, agent.Principal, string) (lifecycle.RevokeResult, error)
 }
 
 type AgentRuntime struct {
@@ -51,6 +56,7 @@ type AgentRuntime struct {
 	Tasks          TaskManager
 	Authorizations AuthorizationSubmitter
 	Statuses       StatusReader
+	Revocations    AgentRevoker
 }
 
 func (runtime *AgentRuntime) Register(mux *http.ServeMux) {
@@ -60,6 +66,9 @@ func (runtime *AgentRuntime) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/agent/tasks/{task_id}/end", runtime.endTask)
 	mux.HandleFunc("POST /v1/agent/authorizations", runtime.requestAuthorization)
 	mux.HandleFunc("GET /v1/agent/authorizations/{request_id}", runtime.authorizationStatus)
+	if runtime.Revocations != nil {
+		mux.HandleFunc("POST /v1/agent/authorizations/{request_id}/revoke", runtime.revokeAuthorization)
+	}
 }
 
 func (runtime *AgentRuntime) authenticate(response http.ResponseWriter, request *http.Request) (agent.Principal, bool) {
@@ -105,6 +114,10 @@ func (runtime *AgentRuntime) beginTask(response http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
+	var input struct{}
+	if !decodeStrict(response, request, &input) {
+		return
+	}
 	record, err := runtime.Tasks.Begin(request.Context(), principal.AgentID)
 	if err != nil {
 		writeJSON(response, 500, map[string]string{"error": "INTERNAL"})
@@ -115,6 +128,10 @@ func (runtime *AgentRuntime) beginTask(response http.ResponseWriter, request *ht
 func (runtime *AgentRuntime) heartbeat(response http.ResponseWriter, request *http.Request) {
 	principal, ok := runtime.authenticate(response, request)
 	if !ok {
+		return
+	}
+	var input struct{}
+	if !decodeStrict(response, request, &input) {
 		return
 	}
 	if err := runtime.Tasks.Heartbeat(request.Context(), principal.AgentID, request.PathValue("task_id")); err != nil {
@@ -167,6 +184,23 @@ func (runtime *AgentRuntime) authorizationStatus(response http.ResponseWriter, r
 		return
 	}
 	writeJSON(response, 200, status)
+}
+
+func (runtime *AgentRuntime) revokeAuthorization(response http.ResponseWriter, request *http.Request) {
+	principal, ok := runtime.authenticate(response, request)
+	if !ok {
+		return
+	}
+	var input struct{}
+	if !decodeStrict(response, request, &input) {
+		return
+	}
+	result, err := runtime.Revocations.RevokeAgent(request.Context(), principal, request.PathValue("request_id"))
+	if err != nil {
+		writeJSON(response, http.StatusConflict, map[string]string{"error": "REVOCATION_REJECTED"})
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"revoked_before_execution": result.RevokedBeforeExecution, "cancellation_requested": len(result.CancelExecutionIDs) > 0})
 }
 
 func decodeStrict(response http.ResponseWriter, request *http.Request, destination any) bool {

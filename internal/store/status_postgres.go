@@ -13,13 +13,13 @@ func (repository *PostgreSQLRequestRepository) GetAuthorizationStatus(ctx contex
 	var decision, grantStatus, executionStatus, reclaimStatus, errorCode sql.NullString
 	var grantExpires sql.NullTime
 	err := repository.database.QueryRowContext(ctx, `
-SELECT r.id,r.status,r.approval_deadline,a.decision,g.status,g.expires_at,e.status,rc.status,COALESCE(rc.error_code,e.error_code)
+SELECT r.id,r.status,r.approval_deadline,a.decision,g.status,g.expires_at,e.status,rc.status,COALESCE(rc.error_code,e.error_code),r.operation
 FROM authorization_requests r
 LEFT JOIN approvals a ON a.request_id=r.id
 LEFT JOIN operation_grants g ON g.request_id=r.id
 LEFT JOIN executions e ON e.grant_id=g.id
 LEFT JOIN LATERAL (SELECT status,error_code FROM reclaims WHERE execution_id=e.id ORDER BY attempt DESC LIMIT 1) rc ON true
-WHERE r.id=$1 AND r.agent_id=$2`, requestID, agentID).Scan(&result.RequestID, &result.RequestStatus, &result.ApprovalDeadline, &decision, &grantStatus, &grantExpires, &executionStatus, &reclaimStatus, &errorCode)
+WHERE r.id=$1 AND r.agent_id=$2`, requestID, agentID).Scan(&result.RequestID, &result.RequestStatus, &result.ApprovalDeadline, &decision, &grantStatus, &grantExpires, &executionStatus, &reclaimStatus, &errorCode, &result.OperationKind)
 	if err != nil {
 		return control.AuthorizationStatus{}, fmt.Errorf("read authorization status: %w", err)
 	}

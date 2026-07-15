@@ -1,6 +1,6 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.h`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-009`｜下一项：`AKV-009.a`
 
 ## 恢复点
 
@@ -13,7 +13,8 @@
 - 管理员目标/凭证 API 已支持录入、更新和停用；Vault 路径由服务端生成，秘密字节写入后清零且不返回路径。
 - Web 已按 owner/APPROVE_ALL/管理员权限列出申请，展示冻结操作与风险，支持原子决策、撤销、审计链和 incident 关闭；关闭告警不恢复 Grant。
 - 嵌入式 Web 工作台已覆盖登录、Agent Token 一次展示/变更、用户/目录管理、审批/撤销、审计和告警；业务数据仅用 textContent，无浏览器持久化。
-- 下一轮 `AKV-008.h` 实现本地 AKV MCP Server 的完整工具集、0600 Token 文件和后台心跳。
+- AKV MCP Server 已提供 9 个 stdio 工具，Token 仅从 0600 文件注入，无重试/重定向；任务按 15 秒自动心跳，结束或进程退出停止。
+- 下一轮 `AKV-009.a` 建立本地可重复运行配置、安全示例和端到端验收测试矩阵。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
 
 ## 当前工作项
@@ -21,11 +22,11 @@
 下一最小切片：
 
 ```text
-ID / 目标：AKV-008.h / 实现 AKV MCP Server
-验收条件：标准 stdio MCP initialize/tools/list/tools/call；list/get target、begin/heartbeat/end task、request/cancel/status/execute；Token 仅从 0600 文件自动注入且不在 schema/返回/错误中；begin 后 15 秒后台心跳；end/exit 停止心跳；控制与执行 HTTP 边界联调；无透明重试
-修改范围：MCP 协议/客户端包、`cmd/akv-mcp-server`、Agent API 补齐、测试、memory/progress
+ID / 目标：AKV-009.a / 建立可运行示例与 E2E 验收矩阵
+验收条件：无真实凭证的本地启动说明/配置样例；每个进程权限与 0600 文件分离；从 MCP 申请到 Web 审批、代理执行、回收、审计的 E2E；需求第 5 节 10 项均有可复现证据；失败/取消/超时/退出、主动撤销、静态/动态回收和审计关联均覆盖
+修改范围：README/配置示例、E2E fake 外部系统、验收测试/脚本、Makefile、memory/progress
 验证命令：make verify；make test-migrations-postgres
-风险 / 下一步：MCP 工具输入 schema 必须禁止 token/credential_id/任意 URL/认证头，进程日志只能走 stderr 且不记请求体
+风险 / 下一步：测试凭证必须明确为进程内 fixture，不得写入环境、文件、日志或 agent 文档
 ```
 
 ## 队列
@@ -39,8 +40,8 @@ ID / 目标：AKV-008.h / 实现 AKV MCP Server
 | `AKV-005` | `DONE` | 003,004 | 不可变申请、审批竞争、绑定 Grant 及 PostgreSQL 原子占用 |
 | `AKV-006` | `DONE` | 005 | 独立受控代理、HTTP/PG/Transit、动态凭证与真实适配器 |
 | `AKV-007` | `DONE` | 005,006 | 超时、撤销、回收、异常恢复、审计及保留清理 |
-| `AKV-008` | `IN_PROGRESS` | 003-007 | MCP 工具和 Web 控制面 |
-| `AKV-009` | `BACKLOG` | 008 | 需求第 5 节全部端到端安全验收与演示 |
+| `AKV-008` | `DONE` | 003-007 | MCP 工具和 Web 控制面 |
+| `AKV-009` | `IN_PROGRESS` | 008 | 需求第 5 节全部端到端安全验收与演示 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -55,7 +56,6 @@ ID / 目标：AKV-008.h / 实现 AKV MCP Server
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-007.d`：实现状态触发审计、关联链与 180 天限量实际清理｜下一步 `AKV-007.e`｜计划提交 `feat(audit): persist safe lifecycle events`
 - 2026-07-15｜`AKV-007.e`：持久化 Lease 并恢复超时/失败回收直至关闭 incident｜下一步 `AKV-008.a`｜计划提交 `feat(worker): recover interrupted executions`
 - 2026-07-15｜`AKV-008.a`：装配无秘密 DTO 的 Agent Bearer 控制 API 与真实 PG 链路｜下一步 `AKV-008.b`｜计划提交 `feat(control): expose agent control API`
 - 2026-07-15｜`AKV-008.b`：实现可撤销 Web Session、安全 Cookie 与同源/CSRF 边界｜下一步 `AKV-008.c`｜计划提交 `feat(control): authenticate web sessions`
@@ -65,6 +65,7 @@ ID / 目标：AKV-008.h / 实现 AKV MCP Server
 - 2026-07-15｜`AKV-008.e2`：实现服务端路径的目标/凭证录入更新停用与无秘密 Web DTO｜下一步 `AKV-008.f`｜计划提交 `feat(control): manage credential catalog`
 - 2026-07-15｜`AKV-008.f`：实现权限隔离的申请查询、原子决策/撤销、审计链和不恢复 Grant 的 incident 处置｜下一步 `AKV-008.g`｜计划提交 `feat(control): expose approval workspace`
 - 2026-07-15｜`AKV-008.g`：实现无持久化/无不安全渲染的嵌入式人类审批工作台与 CSP｜下一步 `AKV-008.h`｜计划提交 `feat(web): add human control console`
+- 2026-07-15｜`AKV-008.h`：实现 9 工具 stdio MCP、0600 Token 注入、15 秒心跳和无重试受控执行｜下一步 `AKV-009.a`｜计划提交 `feat(mcp): expose controlled agent tools`
 
 ## MVP 验收
 

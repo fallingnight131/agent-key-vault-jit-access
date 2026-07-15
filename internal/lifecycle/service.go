@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fallingnight/akv/internal/agent"
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/identity"
 	"github.com/fallingnight/akv/internal/task"
@@ -21,6 +22,18 @@ type SweepResult struct {
 	ExpiredGrants       int64
 	LostTasks           int64
 	CancelledExecutions []string
+}
+
+func (service *Service) RevokeAgent(ctx context.Context, principal agent.Principal, requestID string) (RevokeResult, error) {
+	decisionContext, err := service.repository.FindDecisionContext(ctx, requestID)
+	if err != nil || principal.AgentID == "" || decisionContext.Request.AgentID != principal.AgentID {
+		return RevokeResult{}, ErrRevokeForbidden
+	}
+	result, err := service.repository.RevokeRequest(ctx, requestID, service.now())
+	if err != nil {
+		return RevokeResult{}, ErrRevokeUnavailable
+	}
+	return result, nil
 }
 
 type RevokeResult struct {

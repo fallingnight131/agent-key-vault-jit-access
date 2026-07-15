@@ -14,6 +14,7 @@ import (
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/catalog"
 	"github.com/fallingnight/akv/internal/domain"
+	"github.com/fallingnight/akv/internal/lifecycle"
 	"github.com/fallingnight/akv/internal/task"
 )
 
@@ -52,6 +53,13 @@ func (apiStatuses) GetAuthorizationStatus(context.Context, string, string) (Auth
 	return AuthorizationStatus{RequestID: "request", RequestStatus: "PENDING_APPROVAL"}, nil
 }
 
+type apiRevocations struct{ calls int }
+
+func (revocations *apiRevocations) RevokeAgent(context.Context, agent.Principal, string) (lifecycle.RevokeResult, error) {
+	revocations.calls++
+	return lifecycle.RevokeResult{RevokedBeforeExecution: true}, nil
+}
+
 func TestAgentTargetsDTOExcludesInternalCredentialAndConnection(t *testing.T) {
 	server := testAgentServer(&apiAuthorizations{})
 	request := httptest.NewRequest(http.MethodGet, "/v1/agent/targets", nil)
@@ -83,6 +91,19 @@ func TestAgentAPIRequiresBearer(t *testing.T) {
 	server.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/agent/targets", nil))
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", response.Code)
+	}
+}
+
+func TestAgentCanRevokeOwnedAuthorizationWithoutTokenInPayload(t *testing.T) {
+	revocations := &apiRevocations{}
+	runtime := &AgentRuntime{Authenticator: apiAuthenticator{}, Targets: apiTargets{}, Tasks: apiTasks{}, Authorizations: &apiAuthorizations{}, Statuses: apiStatuses{}, Revocations: revocations}
+	server := NewServer(Config{ListenAddress: "127.0.0.1:0"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), runtime, nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/agent/authorizations/request/revoke", strings.NewReader(`{}`))
+	request.Header.Set("Authorization", "Bearer fixture-token")
+	response := httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || revocations.calls != 1 {
+		t.Fatalf("status=%d calls=%d body=%q", response.Code, revocations.calls, response.Body.String())
 	}
 }
 

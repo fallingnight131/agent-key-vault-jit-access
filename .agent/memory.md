@@ -59,6 +59,7 @@
 - 2026-07-15：管理 API 忽略客户端 Vault 路径并按凭证 UUID 生成 KV/Transit/Database 引用；秘密以 base64 JSON 字节输入并在请求后清零，对外目录 DTO 仅含别名/类型/状态而无 Vault 引用。
 - 2026-07-15：Web 申请查询在 SQL 中按 Agent owner/APPROVE_ALL/管理员限定，返回冻结 operation、别名和非秘密风险提示；审批/撤销复用原子服务，人工关闭 incident 只变更告警状态且 Grant 保持 `RECLAIM_FAILED`。
 - 2026-07-15：人类工作台作为 Go embed 静态资源与控制 API 同源，CSP 禁止外部脚本/对象/框架；不用 local/sessionStorage、innerHTML 或 console，Agent Token 仅在一次性 dialog 中用 textContent 展示。
+- 2026-07-15：MCP Server 使用官方稳定 `2025-11-25` stdio 换行 JSON-RPC（并兼容 `2025-06-18` initialize）；9 个工具 schema 无 Token/凭证 ID/任意 URL/认证头，执行类型从服务端状态选路，HTTP 不重试且拒绝重定向。
 
 ## Agent 维护区
 

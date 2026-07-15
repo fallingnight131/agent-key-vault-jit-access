@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fallingnight/akv/internal/agent"
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/identity"
 	"github.com/fallingnight/akv/internal/task"
@@ -17,7 +18,21 @@ type fakeRepository struct {
 }
 
 func (*fakeRepository) FindDecisionContext(context.Context, string) (authorization.DecisionContext, error) {
-	return authorization.DecisionContext{AgentOwnerUserID: "owner"}, nil
+	return authorization.DecisionContext{Request: authorization.Request{AgentID: "agent-a"}, AgentOwnerUserID: "owner"}, nil
+}
+
+func TestAgentRevokeRequiresExactAgentBinding(t *testing.T) {
+	repository := &fakeRepository{}
+	service := NewService(repository)
+	if _, err := service.RevokeAgent(context.Background(), agent.Principal{AgentID: "agent-b", OwnerUserID: "owner"}, "request"); !errors.Is(err, ErrRevokeForbidden) {
+		t.Fatalf("cross-agent RevokeAgent() error=%v", err)
+	}
+	if _, err := service.RevokeAgent(context.Background(), agent.Principal{AgentID: "agent-a", OwnerUserID: "owner"}, "request"); err != nil {
+		t.Fatalf("bound RevokeAgent() error=%v", err)
+	}
+	if repository.revokes != 1 {
+		t.Fatalf("revokes=%d", repository.revokes)
+	}
 }
 func (repository *fakeRepository) RevokeRequest(context.Context, string, time.Time) (RevokeResult, error) {
 	repository.revokes++

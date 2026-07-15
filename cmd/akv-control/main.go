@@ -77,11 +77,13 @@ func main() {
 		os.Exit(1)
 	}
 	authorizationRepository := store.NewPostgreSQLAuthorizationRepository(database)
+	lifecycleService := lifecycle.NewService(store.NewPostgreSQLLifecycleRepository(database))
+	runtime.Revocations = lifecycleService
 	webRuntime := &control.WebRuntime{
 		Identity: identityService, Agents: agentService, Users: identityService, Catalog: catalogService,
 		ApprovalReader: store.NewPostgreSQLWebRepository(database),
 		Approvals:      authorization.NewApprovalService(authorizationRepository),
-		Revocations:    lifecycle.NewService(store.NewPostgreSQLLifecycleRepository(database)),
+		Revocations:    lifecycleService,
 	}
 	server := control.NewServer(config, logger, runtime, webRuntime)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
