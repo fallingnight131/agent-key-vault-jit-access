@@ -157,6 +157,9 @@ func validateOperation(target catalog.Target, credential catalog.Credential, ope
 		if target.ConnectorType != catalog.ConnectorHTTP || operation.HTTP == nil || operation.PostgreSQL != nil || operation.Sign != nil {
 			return ErrInvalidRequest
 		}
+		if !slices.Contains([]catalog.CredentialType{catalog.CredentialAPIKey, catalog.CredentialAccessToken, catalog.CredentialUsernamePassword}, credential.Type) {
+			return ErrInvalidRequest
+		}
 		parameters := operation.HTTP
 		parameters.Method = strings.ToUpper(strings.TrimSpace(parameters.Method))
 		if !slices.Contains(target.ConnectionConfig.AllowedHTTPMethods, parameters.Method) {

@@ -17,7 +17,10 @@ func NewPostgreSQLLifecycleRepository(database *sql.DB) *PostgreSQLLifecycleRepo
 	return &PostgreSQLLifecycleRepository{PostgreSQLAuthorizationRepository: NewPostgreSQLAuthorizationRepository(database)}
 }
 
-func (repository *PostgreSQLLifecycleRepository) RevokeRequest(ctx context.Context, requestID string, at time.Time) (lifecycle.RevokeResult, error) {
+func (repository *PostgreSQLLifecycleRepository) RevokeRequest(ctx context.Context, requestID string, actor lifecycle.RevokeActor, at time.Time) (lifecycle.RevokeResult, error) {
+	if (actor.Type != "USER" && actor.Type != "AGENT") || actor.ID == "" {
+		return lifecycle.RevokeResult{}, lifecycle.ErrRevokeUnavailable
+	}
 	transaction, err := repository.database.BeginTx(ctx, nil)
 	if err != nil {
 		return lifecycle.RevokeResult{}, fmt.Errorf("begin revoke: %w", err)
@@ -31,6 +34,9 @@ WHERE request_id=$1 AND status='APPROVED' AND revoked_at IS NULL`, requestID, at
 	}
 	rows, _ := result.RowsAffected()
 	if rows == 1 {
+		if err := writeRevocationAudit(ctx, transaction, requestID, actor, at); err != nil {
+			return lifecycle.RevokeResult{}, err
+		}
 		if err := transaction.Commit(); err != nil {
 			return lifecycle.RevokeResult{}, err
 		}
@@ -43,7 +49,6 @@ RETURNING (SELECT e.id FROM executions e WHERE e.grant_id=g.id)`, requestID, at)
 	if err != nil {
 		return lifecycle.RevokeResult{}, fmt.Errorf("request executing cancellation: %w", err)
 	}
-	defer rowsResult.Close()
 	var executionIDs []string
 	for rowsResult.Next() {
 		var executionID sql.NullString
@@ -54,13 +59,34 @@ RETURNING (SELECT e.id FROM executions e WHERE e.grant_id=g.id)`, requestID, at)
 			executionIDs = append(executionIDs, executionID.String)
 		}
 	}
+	if err := rowsResult.Err(); err != nil {
+		rowsResult.Close()
+		return lifecycle.RevokeResult{}, err
+	}
+	rowsResult.Close()
 	if len(executionIDs) == 0 {
 		return lifecycle.RevokeResult{}, lifecycle.ErrRevokeUnavailable
+	}
+	if err := writeRevocationAudit(ctx, transaction, requestID, actor, at); err != nil {
+		return lifecycle.RevokeResult{}, err
 	}
 	if err := transaction.Commit(); err != nil {
 		return lifecycle.RevokeResult{}, err
 	}
 	return lifecycle.RevokeResult{CancelExecutionIDs: executionIDs}, nil
+}
+
+func writeRevocationAudit(ctx context.Context, transaction *sql.Tx, requestID string, actor lifecycle.RevokeActor, at time.Time) error {
+	_, err := transaction.ExecContext(ctx, `
+INSERT INTO audit_events (id,event_type,actor_type,actor_id,request_id,grant_id,execution_id,metadata,created_at)
+SELECT gen_random_uuid(),'authorization.revoked',$2,$3::uuid,g.request_id,g.id,e.id,
+       jsonb_build_object('status',g.status,'cancellation_requested',CASE WHEN g.status='EXECUTING' THEN 'true' ELSE 'false' END),$4
+FROM operation_grants g LEFT JOIN executions e ON e.grant_id=g.id
+WHERE g.request_id=$1`, requestID, actor.Type, actor.ID, at)
+	if err != nil {
+		return fmt.Errorf("write revocation audit: %w", err)
+	}
+	return nil
 }
 
 func (repository *PostgreSQLLifecycleRepository) SweepExpiredAndLost(ctx context.Context, now, lostCutoff time.Time) (lifecycle.SweepResult, error) {

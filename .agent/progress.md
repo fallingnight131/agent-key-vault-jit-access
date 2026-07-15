@@ -1,6 +1,6 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-009`｜下一项：`AKV-009.a`
+更新：2026-07-15｜总体：`DONE`｜当前：无｜下一项：无
 
 ## 恢复点
 
@@ -14,19 +14,18 @@
 - Web 已按 owner/APPROVE_ALL/管理员权限列出申请，展示冻结操作与风险，支持原子决策、撤销、审计链和 incident 关闭；关闭告警不恢复 Grant。
 - 嵌入式 Web 工作台已覆盖登录、Agent Token 一次展示/变更、用户/目录管理、审批/撤销、审计和告警；业务数据仅用 textContent，无浏览器持久化。
 - AKV MCP Server 已提供 9 个 stdio 工具，Token 仅从 0600 文件注入，无重试/重定向；任务按 15 秒自动心跳，结束或进程退出停止。
-- 下一轮 `AKV-009.a` 建立本地可重复运行配置、安全示例和端到端验收测试矩阵。
+- `make verify-all` 使用全新临时 PostgreSQL 验证迁移、并发、race 和不预置 Grant 的完整授权→执行→回收→审计闭环。
+- 管理员 Web 已覆盖 HTTP/PostgreSQL 目标、全部 MVP 凭证类型、全局审计和安全告警；证书可存储但申请阶段禁止执行。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
 
 ## 当前工作项
 
-下一最小切片：
+已完成工作项：
 
 ```text
 ID / 目标：AKV-009.a / 建立可运行示例与 E2E 验收矩阵
-验收条件：无真实凭证的本地启动说明/配置样例；每个进程权限与 0600 文件分离；从 MCP 申请到 Web 审批、代理执行、回收、审计的 E2E；需求第 5 节 10 项均有可复现证据；失败/取消/超时/退出、主动撤销、静态/动态回收和审计关联均覆盖
-修改范围：README/配置示例、E2E fake 外部系统、验收测试/脚本、Makefile、memory/progress
-验证命令：make verify；make test-migrations-postgres
-风险 / 下一步：测试凭证必须明确为进程内 fixture，不得写入环境、文件、日志或 agent 文档
+结果：README、非秘密配置样例、OpenBao 分权策略、真实 PostgreSQL E2E、10 项验收证据、完整 Web 控制面和 actor 审计均已落地
+验证：`make verify-all`、`make build`、`node --check internal/control/web/app.js`、`git diff --check` 通过
 ```
 
 ## 队列
@@ -41,22 +40,20 @@ ID / 目标：AKV-009.a / 建立可运行示例与 E2E 验收矩阵
 | `AKV-006` | `DONE` | 005 | 独立受控代理、HTTP/PG/Transit、动态凭证与真实适配器 |
 | `AKV-007` | `DONE` | 005,006 | 超时、撤销、回收、异常恢复、审计及保留清理 |
 | `AKV-008` | `DONE` | 003-007 | MCP 工具和 Web 控制面 |
-| `AKV-009` | `IN_PROGRESS` | 008 | 需求第 5 节全部端到端安全验收与演示 |
+| `AKV-009` | `DONE` | 008 | 需求第 5 节全部端到端安全验收与演示 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
 ## 待决/阻塞
 
-- 部署环境未确认：先提供本地、可重复、无真实凭证的运行方式。
 - 当前无真实阻塞。
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、catalog/control/store/vault race、`git diff --check` 和 `make test-migrations-postgres` 通过；目标/凭证更新停用、服务端 Vault 路径和无秘密 DTO 已验证。
+- 2026-07-15：`make verify-all`通过；包含全包 race、4 个不可变迁移、真实 PostgreSQL 并发/生命周期/审计/E2E；`make build`产出 5 个可执行文件。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-007.e`：持久化 Lease 并恢复超时/失败回收直至关闭 incident｜下一步 `AKV-008.a`｜计划提交 `feat(worker): recover interrupted executions`
 - 2026-07-15｜`AKV-008.a`：装配无秘密 DTO 的 Agent Bearer 控制 API 与真实 PG 链路｜下一步 `AKV-008.b`｜计划提交 `feat(control): expose agent control API`
 - 2026-07-15｜`AKV-008.b`：实现可撤销 Web Session、安全 Cookie 与同源/CSRF 边界｜下一步 `AKV-008.c`｜计划提交 `feat(control): authenticate web sessions`
 - 2026-07-15｜`AKV-008.c`：实现自有 Agent 列表/注册/启停及 Token 一次返回的轮换/撤销｜下一步 `AKV-008.d`｜计划提交 `feat(control): manage owned agents`
@@ -66,7 +63,8 @@ ID / 目标：AKV-009.a / 建立可运行示例与 E2E 验收矩阵
 - 2026-07-15｜`AKV-008.f`：实现权限隔离的申请查询、原子决策/撤销、审计链和不恢复 Grant 的 incident 处置｜下一步 `AKV-008.g`｜计划提交 `feat(control): expose approval workspace`
 - 2026-07-15｜`AKV-008.g`：实现无持久化/无不安全渲染的嵌入式人类审批工作台与 CSP｜下一步 `AKV-008.h`｜计划提交 `feat(web): add human control console`
 - 2026-07-15｜`AKV-008.h`：实现 9 工具 stdio MCP、0600 Token 注入、15 秒心跳和无重试受控执行｜下一步 `AKV-009.a`｜计划提交 `feat(mcp): expose controlled agent tools`
+- 2026-07-15｜`AKV-009.a`：补齐本地运行/分权策略、完整 Web 控制面、actor/拒绝审计和真实 PG E2E｜下一步无｜计划提交 `test(e2e): verify MVP security matrix`
 
 ## MVP 验收
 
-以 `docs/project-requirements.md` 第 5 节为唯一清单。只有存在可复现测试或演示证据时，才在此追加 `PASS + 证据位置`；不要复制整张清单。
+需求第 5 节 10 项均 `PASS`；逐项测试名、持久层与端到端证据见 `docs/acceptance.md`。

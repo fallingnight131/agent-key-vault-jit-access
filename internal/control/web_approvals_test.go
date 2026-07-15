@@ -21,10 +21,13 @@ type webApprovalFake struct {
 }
 
 func (fake *webApprovalFake) ListAuthorizationRequests(context.Context, identity.User) ([]ApprovalView, error) {
-	return []ApprovalView{{RequestID: "request", AgentID: "agent", TaskID: "task", TargetName: "tickets", CredentialAlias: "default", OperationKind: "HTTP", Operation: []byte(`{"kind":"HTTP"}`), Reason: "fixture", Status: "PENDING_APPROVAL", RiskHint: "review"}}, nil
+	return []ApprovalView{{RequestID: "request", AgentID: "agent", AgentName: "worker", OwnerUsername: "owner", TaskID: "task", TargetName: "tickets", CredentialAlias: "default", CredentialType: "API_KEY", OperationKind: "HTTP", Operation: []byte(`{"kind":"HTTP"}`), Reason: "fixture", Status: "PENDING_APPROVAL", RiskHint: "review"}}, nil
 }
 func (fake *webApprovalFake) ReadAuthorizationAudit(context.Context, identity.User, string) ([]AuditView, error) {
 	return []AuditView{{ID: "event", EventType: "REQUEST_CREATED", Metadata: map[string]string{"status": "PENDING_APPROVAL"}}}, nil
+}
+func (fake *webApprovalFake) ListAuditEvents(context.Context, identity.User) ([]AuditView, error) {
+	return []AuditView{{ID: "event", EventType: "authorization_requests.insert", ActorType: "AGENT"}}, nil
 }
 func (fake *webApprovalFake) ListSecurityIncidents(context.Context, identity.User) ([]IncidentView, error) {
 	return nil, nil
@@ -50,6 +53,12 @@ func TestWebApprovalDecisionAndAudit(t *testing.T) {
 	server.Handler.ServeHTTP(response, request)
 	if response.Code != 200 || strings.Contains(response.Body.String(), "vault") {
 		t.Fatalf("list status=%d body=%q", response.Code, response.Body.String())
+	}
+	request = authenticatedWebRequest(http.MethodGet, "/v1/web/audit", "")
+	response = httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "authorization_requests.insert") {
+		t.Fatalf("global audit status=%d body=%q", response.Code, response.Body.String())
 	}
 	request = authenticatedWebRequest(http.MethodPost, "/v1/web/authorizations/request/decision", `{"decision":"APPROVED","grant_ttl_seconds":60}`)
 	response = httptest.NewRecorder()

@@ -17,6 +17,11 @@ var (
 	ErrRevokeUnavailable = errors.New("authorization cannot be revoked")
 )
 
+type RevokeActor struct {
+	Type string
+	ID   string
+}
+
 type SweepResult struct {
 	ExpiredRequests     int64
 	ExpiredGrants       int64
@@ -29,7 +34,7 @@ func (service *Service) RevokeAgent(ctx context.Context, principal agent.Princip
 	if err != nil || principal.AgentID == "" || decisionContext.Request.AgentID != principal.AgentID {
 		return RevokeResult{}, ErrRevokeForbidden
 	}
-	result, err := service.repository.RevokeRequest(ctx, requestID, service.now())
+	result, err := service.repository.RevokeRequest(ctx, requestID, RevokeActor{Type: "AGENT", ID: principal.AgentID}, service.now())
 	if err != nil {
 		return RevokeResult{}, ErrRevokeUnavailable
 	}
@@ -43,7 +48,7 @@ type RevokeResult struct {
 
 type Repository interface {
 	FindDecisionContext(context.Context, string) (authorization.DecisionContext, error)
-	RevokeRequest(context.Context, string, time.Time) (RevokeResult, error)
+	RevokeRequest(context.Context, string, RevokeActor, time.Time) (RevokeResult, error)
 	SweepExpiredAndLost(context.Context, time.Time, time.Time) (SweepResult, error)
 }
 
@@ -64,7 +69,7 @@ func (service *Service) Revoke(ctx context.Context, actor identity.User, request
 	if !actor.CanApprove(decisionContext.AgentOwnerUserID) {
 		return RevokeResult{}, ErrRevokeForbidden
 	}
-	result, err := service.repository.RevokeRequest(ctx, requestID, service.now())
+	result, err := service.repository.RevokeRequest(ctx, requestID, RevokeActor{Type: "USER", ID: actor.ID}, service.now())
 	if err != nil {
 		return RevokeResult{}, ErrRevokeUnavailable
 	}

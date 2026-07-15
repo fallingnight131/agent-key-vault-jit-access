@@ -31,7 +31,7 @@ func (proxy *SignProxy) SetCancellationRegistry(registry *CancellationRegistry) 
 func (proxy *SignProxy) Execute(ctx context.Context, requestID, authenticatedAgentID, taskID string) ([]byte, error) {
 	plan, err := proxy.plans.LoadPlan(ctx, requestID)
 	if err != nil || plan.AgentID != authenticatedAgentID || plan.TaskID != taskID ||
-		plan.Credential.Type != catalog.CredentialTransitKey || !plan.Credential.Active ||
+		!plan.Target.Active || !plan.Credential.Active || plan.Credential.Type != catalog.CredentialTransitKey ||
 		plan.Operation.Kind != authorization.OperationSign || plan.Operation.Sign == nil {
 		return nil, ErrExecutionDenied
 	}

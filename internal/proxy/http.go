@@ -92,7 +92,9 @@ func (proxy *HTTPProxy) Execute(ctx context.Context, requestID, authenticatedAge
 		return HTTPResult{}, ErrExecutionDenied
 	}
 	plan, err := proxy.plans.LoadPlan(ctx, requestID)
-	if err != nil || plan.AgentID != authenticatedAgentID || plan.TaskID != taskID || plan.Operation.Kind != authorization.OperationHTTP || plan.Operation.HTTP == nil {
+	if err != nil || plan.AgentID != authenticatedAgentID || plan.TaskID != taskID ||
+		!plan.Target.Active || !plan.Credential.Active || plan.Target.ConnectorType != catalog.ConnectorHTTP ||
+		plan.Operation.Kind != authorization.OperationHTTP || plan.Operation.HTTP == nil {
 		return HTTPResult{}, ErrExecutionDenied
 	}
 	claim := authorization.ClaimContext{

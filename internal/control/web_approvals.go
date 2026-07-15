@@ -15,10 +15,12 @@ type ApprovalView struct {
 	RequestID        string          `json:"request_id"`
 	AgentID          string          `json:"agent_id"`
 	AgentName        string          `json:"agent_name"`
+	OwnerUsername    string          `json:"owner_username"`
 	TaskID           string          `json:"task_id"`
 	TargetID         string          `json:"target_id"`
 	TargetName       string          `json:"target_name"`
 	CredentialAlias  string          `json:"credential_alias"`
+	CredentialType   string          `json:"credential_type"`
 	OperationKind    string          `json:"operation_kind"`
 	Operation        json.RawMessage `json:"operation"`
 	Reason           string          `json:"reason"`
@@ -53,9 +55,24 @@ type IncidentView struct {
 type WebApprovalReader interface {
 	ListAuthorizationRequests(context.Context, identity.User) ([]ApprovalView, error)
 	ReadAuthorizationAudit(context.Context, identity.User, string) ([]AuditView, error)
+	ListAuditEvents(context.Context, identity.User) ([]AuditView, error)
 	ListSecurityIncidents(context.Context, identity.User) ([]IncidentView, error)
 	ResolveSecurityIncident(context.Context, identity.User, string) error
 }
+
+func (runtime *WebRuntime) listAuditEvents(response http.ResponseWriter, request *http.Request) {
+	actor, _, ok := runtime.authenticate(response, request)
+	if !ok {
+		return
+	}
+	events, err := runtime.ApprovalReader.ListAuditEvents(request.Context(), actor)
+	if err != nil {
+		writeJSON(response, http.StatusForbidden, map[string]string{"error": "FORBIDDEN"})
+		return
+	}
+	writeJSON(response, http.StatusOK, events)
+}
+
 type WebApprovalDecider interface {
 	Decide(context.Context, identity.User, string, authorization.Decision, *time.Duration) (authorization.Approval, *authorization.Grant, error)
 }

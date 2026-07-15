@@ -309,7 +309,7 @@ func (service *Service) ResolveForRequest(ctx context.Context, targetID string) 
 func validateConnection(connector ConnectorType, config ConnectionConfig, credentialType CredentialType) error {
 	switch connector {
 	case ConnectorHTTP:
-		if !slices.Contains([]CredentialType{CredentialAPIKey, CredentialAccessToken, CredentialUsernamePassword, CredentialTransitKey}, credentialType) {
+		if !slices.Contains([]CredentialType{CredentialAPIKey, CredentialAccessToken, CredentialUsernamePassword, CredentialCertificate, CredentialTransitKey}, credentialType) {
 			return ErrInvalidInput
 		}
 		parsed, err := url.ParseRequestURI(config.BaseURL)

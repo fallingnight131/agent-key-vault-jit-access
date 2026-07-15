@@ -57,3 +57,19 @@ func TestSignDeniedDoesNotCallTransit(t *testing.T) {
 		t.Fatalf("Transit calls = %d", vaultClient.calls)
 	}
 }
+
+func TestSignRejectsDisabledTargetBeforeClaim(t *testing.T) {
+	plan := validPlan("https://unused.example.test")
+	plan.Credential.Type = catalog.CredentialTransitKey
+	plan.Operation = authorization.Operation{Kind: authorization.OperationSign, Sign: &authorization.SignParameters{DigestAlgorithm: "sha2-256", Digest: []byte("fixture-digest")}}
+	plan.Target.Active = false
+	guard := &fakeGuard{}
+	client := &signVault{}
+	signProxy := NewSignProxy(&fakePlans{plan}, guard, client, &fakeLifecycle{})
+	if _, err := signProxy.Execute(context.Background(), "request", "agent", "task"); !errors.Is(err, ErrExecutionDenied) {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if guard.calls != 0 || client.calls != 0 {
+		t.Fatalf("guard=%d transit=%d", guard.calls, client.calls)
+	}
+}

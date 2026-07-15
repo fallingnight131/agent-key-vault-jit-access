@@ -30,6 +30,9 @@ func TestPostgreSQLAuthorizationConcurrency(t *testing.T) {
 		t.Fatalf("PingContext() error = %v", err)
 	}
 	seedAuthorizationDatabase(t, database)
+	if _, err := database.Exec(`UPDATE authorization_requests SET reason='mutated' WHERE id=$1`, testRequestID); err == nil {
+		t.Fatal("immutable authorization snapshot update succeeded")
+	}
 	agentService := agent.NewService(NewPostgreSQLAgentRepository(database))
 	credential, err := agentService.Register(context.Background(), testUserID, "route-agent", agent.Token24Hours)
 	if err != nil {

@@ -67,6 +67,24 @@ func TestDynamicIssueFailureNeverFallsBackToStatic(t *testing.T) {
 	}
 }
 
+func TestStaticHandleDestroysMemoryWithoutDeletingSource(t *testing.T) {
+	client := &fakeExecutionClient{}
+	handle, err := Acquire(context.Background(), client, Reference{Kind: ReferenceStaticKV, Path: "kv/data/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := handle.Values["token"]
+	if err := handle.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if client.readCalls != 1 || client.revokeCalls != 0 {
+		t.Fatalf("read=%d revoke=%d", client.readCalls, client.revokeCalls)
+	}
+	if err := value.WithBytes(func([]byte) error { return nil }); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("static material remained: %v", err)
+	}
+}
+
 func TestDynamicHandleRevokesLeaseAndDestroysMaterial(t *testing.T) {
 	client := &fakeExecutionClient{}
 	handle, err := Acquire(context.Background(), client, Reference{

@@ -85,6 +85,21 @@ func TestSubmitRejectsAuthenticationHeaders(t *testing.T) {
 	}
 }
 
+func TestSubmitRejectsStoredOnlyCertificateOperation(t *testing.T) {
+	service := NewService(
+		&fakeTasks{},
+		&fakeCatalog{target: catalog.Target{ID: "target", ConnectorType: catalog.ConnectorHTTP, ConnectionConfig: catalog.ConnectionConfig{AllowedHTTPMethods: []string{"POST"}}}, credential: catalog.Credential{ID: "credential", TargetID: "target", Type: catalog.CredentialCertificate, Active: true}},
+		&fakeRepository{},
+	)
+	_, err := service.Submit(context.Background(), agent.Principal{AgentID: "agent"}, SubmitInput{
+		TaskID: "task", TargetID: "target", Reason: "certificate must remain stored only",
+		Operation: Operation{Kind: OperationHTTP, HTTP: &HTTPParameters{Method: "POST", Path: "/execute"}},
+	})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("Submit() error = %v", err)
+	}
+}
+
 func TestOperationHashBindsContextAndIsDeterministic(t *testing.T) {
 	service, _, _ := newTestService()
 	first, err := service.Submit(context.Background(), agent.Principal{AgentID: "agent"}, validHTTPInput())

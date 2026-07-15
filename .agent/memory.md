@@ -60,6 +60,8 @@
 - 2026-07-15：Web 申请查询在 SQL 中按 Agent owner/APPROVE_ALL/管理员限定，返回冻结 operation、别名和非秘密风险提示；审批/撤销复用原子服务，人工关闭 incident 只变更告警状态且 Grant 保持 `RECLAIM_FAILED`。
 - 2026-07-15：人类工作台作为 Go embed 静态资源与控制 API 同源，CSP 禁止外部脚本/对象/框架；不用 local/sessionStorage、innerHTML 或 console，Agent Token 仅在一次性 dialog 中用 textContent 展示。
 - 2026-07-15：MCP Server 使用官方稳定 `2025-11-25` stdio 换行 JSON-RPC（并兼容 `2025-06-18` initialize）；9 个工具 schema 无 Token/凭证 ID/任意 URL/认证头，执行类型从服务端状态选路，HTTP 不重试且拒绝重定向。
+- 2026-07-15：`make verify-all` 是完整交付门，包含静态检查、全包 race 和全新临时 PostgreSQL；E2E 不预置申请/Grant，贯通 Agent、任务、审批、代理、回收、拒绝重放与 actor 审计。
+- 2026-07-15：业务审计对申请/审批/主动撤销/拒绝 Claim 记录固定 USER/AGENT actor 和无敏感 metadata；唯一管理员可在 Web 查看最新 500 条全局审计。
 
 ## Agent 维护区
 

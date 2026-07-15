@@ -60,6 +60,7 @@ func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
 		mux.HandleFunc("POST /v1/web/authorizations/{request_id}/decision", runtime.decideAuthorization)
 		mux.HandleFunc("POST /v1/web/authorizations/{request_id}/revoke", runtime.revokeAuthorization)
 		mux.HandleFunc("GET /v1/web/authorizations/{request_id}/audit", runtime.authorizationAudit)
+		mux.HandleFunc("GET /v1/web/audit", runtime.listAuditEvents)
 		mux.HandleFunc("GET /v1/web/incidents", runtime.listIncidents)
 		mux.HandleFunc("POST /v1/web/incidents/{incident_id}/resolve", runtime.resolveIncident)
 	}

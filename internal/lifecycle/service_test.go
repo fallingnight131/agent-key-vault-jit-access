@@ -15,6 +15,7 @@ import (
 type fakeRepository struct {
 	now, cutoff time.Time
 	revokes     int
+	actor       RevokeActor
 }
 
 func (*fakeRepository) FindDecisionContext(context.Context, string) (authorization.DecisionContext, error) {
@@ -33,9 +34,13 @@ func TestAgentRevokeRequiresExactAgentBinding(t *testing.T) {
 	if repository.revokes != 1 {
 		t.Fatalf("revokes=%d", repository.revokes)
 	}
+	if repository.actor != (RevokeActor{Type: "AGENT", ID: "agent-a"}) {
+		t.Fatalf("actor=%+v", repository.actor)
+	}
 }
-func (repository *fakeRepository) RevokeRequest(context.Context, string, time.Time) (RevokeResult, error) {
+func (repository *fakeRepository) RevokeRequest(_ context.Context, _ string, actor RevokeActor, _ time.Time) (RevokeResult, error) {
 	repository.revokes++
+	repository.actor = actor
 	return RevokeResult{RevokedBeforeExecution: true}, nil
 }
 func (repository *fakeRepository) SweepExpiredAndLost(_ context.Context, now, cutoff time.Time) (SweepResult, error) {
@@ -62,6 +67,9 @@ func TestRevokePermissions(t *testing.T) {
 			}
 			if !test.allowed && !errors.Is(err, ErrRevokeForbidden) {
 				t.Fatalf("Revoke() error = %v", err)
+			}
+			if test.allowed && repository.actor != (RevokeActor{Type: "USER", ID: test.actor.ID}) {
+				t.Fatalf("actor=%+v", repository.actor)
 			}
 		})
 	}

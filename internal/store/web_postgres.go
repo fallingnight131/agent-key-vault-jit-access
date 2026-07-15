@@ -18,7 +18,7 @@ func NewPostgreSQLWebRepository(database *sql.DB) *PostgreSQLWebRepository {
 }
 
 func (repository *PostgreSQLWebRepository) ListAuthorizationRequests(ctx context.Context, actor identity.User) ([]control.ApprovalView, error) {
-	rows, err := repository.database.QueryContext(ctx, `SELECT r.id,r.agent_id,a.name,r.task_id,r.target_id,t.name,c.alias,r.operation,r.parameters,r.reason,r.status,r.created_at,r.approval_deadline,g.expires_at,t.connector_type FROM authorization_requests r JOIN agents a ON a.id=r.agent_id JOIN targets t ON t.id=r.target_id JOIN credentials c ON c.id=r.credential_id LEFT JOIN operation_grants g ON g.request_id=r.id WHERE ($2 OR $3 OR a.owner_user_id=$1) ORDER BY (r.status='PENDING_APPROVAL') DESC,r.created_at DESC`, actor.ID, actor.IsAdmin, actor.ApproveAll)
+	rows, err := repository.database.QueryContext(ctx, `SELECT r.id,r.agent_id,a.name,u.username,r.task_id,r.target_id,t.name,c.alias,c.credential_type,r.operation,r.parameters,r.reason,r.status,r.created_at,r.approval_deadline,g.expires_at,t.connector_type FROM authorization_requests r JOIN agents a ON a.id=r.agent_id JOIN users u ON u.id=a.owner_user_id JOIN targets t ON t.id=r.target_id JOIN credentials c ON c.id=r.credential_id LEFT JOIN operation_grants g ON g.request_id=r.id WHERE ($2 OR $3 OR a.owner_user_id=$1) ORDER BY (r.status='PENDING_APPROVAL') DESC,r.created_at DESC`, actor.ID, actor.IsAdmin, actor.ApproveAll)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func (repository *PostgreSQLWebRepository) ListAuthorizationRequests(ctx context
 		var operation []byte
 		var expires sql.NullTime
 		var connector string
-		if err := rows.Scan(&record.RequestID, &record.AgentID, &record.AgentName, &record.TaskID, &record.TargetID, &record.TargetName, &record.CredentialAlias, &record.OperationKind, &operation, &record.Reason, &record.Status, &record.CreatedAt, &record.ApprovalDeadline, &expires, &connector); err != nil {
+		if err := rows.Scan(&record.RequestID, &record.AgentID, &record.AgentName, &record.OwnerUsername, &record.TaskID, &record.TargetID, &record.TargetName, &record.CredentialAlias, &record.CredentialType, &record.OperationKind, &operation, &record.Reason, &record.Status, &record.CreatedAt, &record.ApprovalDeadline, &expires, &connector); err != nil {
 			return nil, err
 		}
 		record.Operation = append(json.RawMessage(nil), operation...)
@@ -52,6 +52,30 @@ func (repository *PostgreSQLWebRepository) ReadAuthorizationAudit(ctx context.Co
 		return nil, err
 	}
 	rows, err := repository.database.QueryContext(ctx, `SELECT id,event_type,actor_type,actor_id,request_id,approval_id,grant_id,execution_id,reclaim_id,metadata,created_at FROM audit_events WHERE request_id=$1 ORDER BY created_at,id`, requestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []control.AuditView
+	for rows.Next() {
+		var event control.AuditView
+		var metadata []byte
+		if err := rows.Scan(&event.ID, &event.EventType, &event.ActorType, &event.ActorID, &event.RequestID, &event.ApprovalID, &event.GrantID, &event.ExecutionID, &event.ReclaimID, &metadata, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(metadata, &event.Metadata); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (repository *PostgreSQLWebRepository) ListAuditEvents(ctx context.Context, actor identity.User) ([]control.AuditView, error) {
+	if !actor.CanManageUsersAndTargets() {
+		return nil, fmt.Errorf("forbidden")
+	}
+	rows, err := repository.database.QueryContext(ctx, `SELECT id,event_type,actor_type,actor_id,request_id,approval_id,grant_id,execution_id,reclaim_id,metadata,created_at FROM audit_events ORDER BY created_at DESC,id DESC LIMIT 500`)
 	if err != nil {
 		return nil, err
 	}

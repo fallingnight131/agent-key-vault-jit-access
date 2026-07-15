@@ -150,6 +150,14 @@ RETURNING g.id, g.request_id, g.agent_id, g.task_id, g.target_id,
 		&status, &grant.ClaimedAt, &grant.CompletedAt, &grant.RevokedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
+		_, auditErr := repository.database.ExecContext(ctx, `
+INSERT INTO audit_events (id,event_type,actor_type,actor_id,request_id,grant_id,metadata,created_at)
+SELECT gen_random_uuid(),'operation_grants.claim_denied','AGENT',$2::uuid,g.request_id,g.id,
+       '{"reason":"CONTEXT_OR_STATE_MISMATCH"}'::jsonb,$3
+FROM operation_grants g WHERE g.id=$1`, claim.GrantID, claim.AgentID, now)
+		if auditErr != nil {
+			return authorization.Grant{}, fmt.Errorf("audit denied grant claim: %w", auditErr)
+		}
 		return authorization.Grant{}, authorization.ErrClaimDenied
 	}
 	if err != nil {

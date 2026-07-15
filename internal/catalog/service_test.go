@@ -159,16 +159,27 @@ func TestConnectionConfigRejectsCredentialBypass(t *testing.T) {
 			ConnectionConfig: ConnectionConfig{Host: "db.internal", Port: 5432, Database: "app", TLSMode: "require", RequireDynamic: true},
 			CredentialAlias:  "fixed", CredentialType: CredentialUsernamePassword, VaultPath: "kv/data/db/fixed",
 		},
-		func() CreateInput {
-			input := validHTTPInput()
-			input.CredentialType = CredentialCertificate
-			return input
-		}(),
 	}
 	for index, input := range tests {
 		if _, _, err := service.CreateTarget(context.Background(), admin, input); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("case %d CreateTarget() error = %v", index, err)
 		}
+	}
+}
+
+func TestCertificateCanBeStoredForHTTPWithoutBecomingExecutable(t *testing.T) {
+	repository := &fakeRepository{}
+	service := NewService(repository)
+	_, credential, err := service.CreateTarget(context.Background(), identity.User{ID: "admin", IsAdmin: true, OwnerActive: true}, CreateInput{
+		Name: "certificate archive", ConnectorType: ConnectorHTTP,
+		ConnectionConfig: ConnectionConfig{BaseURL: "https://target.example.test", AllowedHTTPMethods: []string{"POST"}},
+		CredentialAlias:  "stored-only", CredentialType: CredentialCertificate, VaultPath: "kv/data/certificate",
+	})
+	if err != nil {
+		t.Fatalf("CreateTarget() error = %v", err)
+	}
+	if credential.Type != CredentialCertificate {
+		t.Fatalf("credential type = %s", credential.Type)
 	}
 }
 

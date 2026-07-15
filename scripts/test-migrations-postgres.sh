@@ -28,6 +28,7 @@ AKV_TEST_POSTGRES_DSN="host=$postgres_socket user=akvtest dbname=akvtest sslmode
 	GOCACHE="${GOCACHE:-/tmp/akv-go-cache}" \
 	go test -race ./internal/store -run TestPostgreSQL -count=1
 
-AKV_TEST_POSTGRES_SOCKET="$postgres_socket" \
+AKV_TEST_POSTGRES_DSN="host=$postgres_socket user=akvtest dbname=akvtest sslmode=disable" \
+	AKV_TEST_POSTGRES_SOCKET="$postgres_socket" \
 	GOCACHE="${GOCACHE:-/tmp/akv-go-cache}" \
-	go test ./internal/proxy -run TestPGXFactoryConnectsToTemporaryPostgreSQL -count=1
+	go test -race ./internal/proxy -run 'Test(PostgreSQLEndToEndAuthorizationFlow|PGXFactoryConnectsToTemporaryPostgreSQL)' -count=1

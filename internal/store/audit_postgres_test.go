@@ -11,6 +11,7 @@ import (
 	"github.com/fallingnight/akv/internal/audit"
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/domain"
+	"github.com/fallingnight/akv/internal/identity"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -53,6 +54,14 @@ func TestPostgreSQLAuditChainAndRetention(t *testing.T) {
 	}
 	if linked < 1 {
 		t.Fatal("audit chain has no fully linked reclaim event")
+	}
+	webRepository := NewPostgreSQLWebRepository(database)
+	if _, err := webRepository.ListAuditEvents(context.Background(), identity.User{ID: testUserID, OwnerActive: true}); err == nil {
+		t.Fatal("non-admin listed global audit")
+	}
+	events, err := webRepository.ListAuditEvents(context.Background(), identity.User{ID: testUserID, IsAdmin: true, OwnerActive: true})
+	if err != nil || len(events) == 0 {
+		t.Fatalf("admin global audit events=%d error=%v", len(events), err)
 	}
 	rows, err := database.Query(`SELECT metadata::text FROM audit_events WHERE request_id=$1`, testClaimRequest)
 	if err != nil {

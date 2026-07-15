@@ -99,6 +99,18 @@ func TestHTTPProxyClaimsBeforeVaultAndTarget(t *testing.T) {
 	}
 }
 
+func TestHTTPProxyRejectsDisabledCatalogBeforeClaim(t *testing.T) {
+	plan := validPlan("https://target.example.test")
+	plan.Target.Active = false
+	guard := &fakeGuard{}
+	vaultClient := &fakeVault{values: map[string]*vault.SensitiveValue{"api_key": vault.NewSensitiveValue([]byte("process-only-value"))}}
+	httpProxy := NewHTTPProxy(&fakePlans{plan}, guard, vaultClient, &fakeLifecycle{})
+	_, err := httpProxy.Execute(context.Background(), "request", "agent", "task")
+	if !errors.Is(err, ErrExecutionDenied) || guard.calls != 0 || vaultClient.readCalls != 0 {
+		t.Fatalf("Execute() error=%v guard=%d vault=%d", err, guard.calls, vaultClient.readCalls)
+	}
+}
+
 func TestHTTPProxyInjectsOnceAndRedactsReflectedSecret(t *testing.T) {
 	const secret = "fixture-api-key"
 	targetCalls := 0

@@ -9,6 +9,7 @@ import (
 
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/domain"
+	"github.com/fallingnight/akv/internal/lifecycle"
 	"github.com/fallingnight/akv/internal/task"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -27,7 +28,7 @@ func TestPostgreSQLLifecycleSweepAndRevoke(t *testing.T) {
 	seedApprovedGrant(t, database)
 	repository := NewPostgreSQLLifecycleRepository(database)
 
-	revoked, err := repository.RevokeRequest(context.Background(), testClaimRequest, time.Now().UTC())
+	revoked, err := repository.RevokeRequest(context.Background(), testClaimRequest, lifecycle.RevokeActor{Type: "USER", ID: testUserID}, time.Now().UTC())
 	if err != nil || !revoked.RevokedBeforeExecution {
 		t.Fatalf("RevokeRequest() result=%+v error=%v", revoked, err)
 	}
@@ -56,13 +57,23 @@ func TestPostgreSQLLifecycleSweepAndRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start execution fixture: %v", err)
 	}
-	cancellation, err := repository.RevokeRequest(context.Background(), executingRequest, now.Add(time.Second))
+	cancellation, err := repository.RevokeRequest(context.Background(), executingRequest, lifecycle.RevokeActor{Type: "AGENT", ID: testAgentID}, now.Add(time.Second))
 	if err != nil || len(cancellation.CancelExecutionIDs) != 1 || cancellation.CancelExecutionIDs[0] != executionID {
 		t.Fatalf("executing RevokeRequest() result=%+v error=%v", cancellation, err)
 	}
 	requested, err := executionRepository.ListCancellationRequested(context.Background())
 	if err != nil || len(requested) != 1 || requested[0] != executionID {
 		t.Fatalf("ListCancellationRequested() ids=%v error=%v", requested, err)
+	}
+	var userRevocations, agentRevocations int
+	if err := database.QueryRow(`SELECT count(*) FROM audit_events WHERE event_type='authorization.revoked' AND request_id=$1 AND actor_type='USER' AND actor_id=$2`, testClaimRequest, testUserID).Scan(&userRevocations); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(`SELECT count(*) FROM audit_events WHERE event_type='authorization.revoked' AND request_id=$1 AND actor_type='AGENT' AND actor_id=$2 AND execution_id=$3`, executingRequest, testAgentID, executionID).Scan(&agentRevocations); err != nil {
+		t.Fatal(err)
+	}
+	if userRevocations != 1 || agentRevocations != 1 {
+		t.Fatalf("revocation audit user=%d agent=%d", userRevocations, agentRevocations)
 	}
 
 	created := now.Add(-time.Hour)
