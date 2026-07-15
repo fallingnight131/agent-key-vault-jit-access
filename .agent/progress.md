@@ -1,6 +1,6 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`DONE`｜当前：无｜下一项：无
+更新：2026-07-16｜总体：`DONE`｜当前：无｜下一项：无
 
 ## 恢复点
 
@@ -24,8 +24,8 @@
 已完成工作项：
 
 ```text
-ID / 目标：AKV-015.a / Agent 通过动态安全操作目录申请受控执行
-验收：管理员可发布不可变操作版本并复用绑定到目标；Agent 只发现公开 Schema，并以 operation_id/version/arguments 申请；Control 严格校验并冻结私有模板生成的执行快照；原始 operation 请求、跨目标/版本、停用操作、Schema 绕过默认拒绝；一次性 Grant、凭证隔离、回收和审计语义保持不变；Web、Claude Code 引导和本地教程同步；完整验证通过并本地提交
+ID / 目标：AKV-016.a / 本地运行教程使用 GitLab 作为目标系统演示
+验收：教程使用专用低权限测试 Token 和私有测试项目；管理员可按文档创建 GitLab HTTP 目标、ACCESS_TOKEN 凭证、`get_project` 安全操作及精确版本绑定；Claude Code 以数字 Project ID 申请并在人工审批后统一执行一次；文档不包含真实 Token，并说明失败排查与 GitLab 侧撤销清理；完整验证通过并本地提交
 ```
 
 ## 队列
@@ -48,6 +48,7 @@ ID / 目标：AKV-015.a / Agent 通过动态安全操作目录申请受控执行
 | `AKV-013.a` | `DONE` | 012.a | 本地 Claude Code 连接 MCP 并经人工审批执行完整样例的教程 |
 | `AKV-014.a` | `DONE` | 013.a | 移除 MCP，Agent 持 Bearer Token 直连 HTTP API，并用 CLAUDE.md 引导 Claude Code |
 | `AKV-015.a` | `DONE` | 014.a | 管理员安全操作目录、版本化目标绑定与 Agent 动态 Schema 申请 |
+| `AKV-016.a` | `DONE` | 015.a | 以 GitLab 项目查询替换本地健康接口演示教程 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -63,10 +64,10 @@ ID / 目标：AKV-015.a / Agent 通过动态安全操作目录申请受控执行
 - 2026-07-15：`AKV-013.a` Claude Code 2.1.209 隔离配置的 MCP 命令实测、Base64 响应复核、`make verify` 和 `git diff --check` 通过。
 - 2026-07-15：`AKV-014.a` Vue 15 项测试、`make verify`、四个后端二进制构建、全包 race、真实临时 PostgreSQL、直连 API 与 Token 不回显测试、`git diff --check` 通过。
 - 2026-07-15：`AKV-015.a` Vue 21 项测试与生产构建、`go vet`、全包单测/race、真实 PostgreSQL 迁移与 E2E、遗留原始请求默认拒绝、四个二进制构建和 `git diff --check` 通过。
+- 2026-07-16：`AKV-016.a` GitLab 官方认证与项目 API 复核、HTTP/目录/代理单测、`make verify` 和 `git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-008.g`：实现无持久化/无不安全渲染的嵌入式人类审批工作台与 CSP｜下一步 `AKV-008.h`｜计划提交 `feat(web): add human control console`
 - 2026-07-15｜`AKV-008.h`：实现 9 工具 stdio MCP、0600 Token 注入、15 秒心跳和无重试受控执行｜下一步 `AKV-009.a`｜计划提交 `feat(mcp): expose controlled agent tools`
 - 2026-07-15｜`AKV-009.a`：补齐本地运行/分权策略、完整 Web 控制面、actor/拒绝审计和真实 PG E2E｜下一步无｜计划提交 `test(e2e): verify MVP security matrix`
 - 2026-07-15｜`AKV-010.a`：修复 hidden 被组件 display 覆盖导致登录后工作台不可见，并增加回归测试｜下一步无｜计划提交 `fix(web): honor hidden view state`
@@ -76,6 +77,7 @@ ID / 目标：AKV-015.a / Agent 通过动态安全操作目录申请受控执行
 - 2026-07-15｜`AKV-013.a`：重写本地 Claude Code 的 MCP 连接、人工批准和一次性执行样例｜下一步无｜计划提交 `docs(local): explain Claude Code MCP demo`
 - 2026-07-15｜`AKV-014.a`：移除 MCP 并以 CLAUDE.md 引导 Claude Code 安全直连 Agent Bearer HTTP API｜下一步无｜计划提交 `refactor(agent): remove MCP integration`
 - 2026-07-15｜`AKV-015.a`：实现管理员发布/绑定的版本化安全操作、Agent 公开 Schema 发现和统一一次执行，升级时终结遗留原始请求｜下一步无｜计划提交 `feat(auth): add safe operation catalog`
+- 2026-07-16｜`AKV-016.a`：用 GitLab 私有项目只读查询替换本地健康接口演示，补齐低权限令牌、审批执行、排错和撤销步骤｜下一步无｜计划提交 `docs(local): add GitLab target demo`
 
 ## MVP 验收
 
