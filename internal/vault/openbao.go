@@ -24,6 +24,51 @@ type OpenBaoExecutionClient struct {
 	httpClient *http.Client
 }
 
+type OpenBaoControlClient struct {
+	client *OpenBaoExecutionClient
+}
+
+func NewOpenBaoControlClient(address, tokenFile string) (*OpenBaoControlClient, error) {
+	client, err := NewOpenBaoExecutionClient(address, tokenFile)
+	if err != nil {
+		return nil, err
+	}
+	return &OpenBaoControlClient{client: client}, nil
+}
+
+func (client *OpenBaoControlClient) Close() { client.client.Close() }
+
+func (client *OpenBaoControlClient) WriteKV(ctx context.Context, write KVWrite) error {
+	if strings.TrimSpace(write.Path) == "" || len(write.Values) == 0 {
+		return ErrUnavailable
+	}
+	values := make(map[string]string, len(write.Values))
+	for name, value := range write.Values {
+		if strings.TrimSpace(name) == "" || value == nil {
+			return ErrUnavailable
+		}
+		if err := value.WithBytes(func(raw []byte) error {
+			values[name] = string(raw)
+			return nil
+		}); err != nil {
+			return ErrUnavailable
+		}
+	}
+	return client.client.call(ctx, http.MethodPost, write.Path, nil, map[string]any{"data": values}, nil)
+}
+
+func (client *OpenBaoControlClient) ConfigureDatabaseRole(ctx context.Context, role DatabaseRole) error {
+	if strings.TrimSpace(role.Name) == "" || strings.TrimSpace(role.ConnectionName) == "" || len(role.CreationStatements) == 0 || role.DefaultTTL <= 0 || role.MaxTTL < role.DefaultTTL {
+		return ErrUnavailable
+	}
+	path := "database/roles/" + url.PathEscape(role.Name)
+	payload := map[string]any{
+		"db_name": role.ConnectionName, "creation_statements": role.CreationStatements,
+		"default_ttl": role.DefaultTTL.String(), "max_ttl": role.MaxTTL.String(),
+	}
+	return client.client.call(ctx, http.MethodPost, path, nil, payload, nil)
+}
+
 func NewOpenBaoExecutionClient(address, tokenFile string) (*OpenBaoExecutionClient, error) {
 	baseURL, err := url.Parse(strings.TrimRight(address, "/"))
 	if err != nil || (baseURL.Scheme != "http" && baseURL.Scheme != "https") || baseURL.Host == "" || baseURL.User != nil {

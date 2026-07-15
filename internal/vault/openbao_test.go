@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -93,3 +94,46 @@ func TestOpenBaoErrorBodyIsNeverReturned(t *testing.T) {
 		t.Fatalf("ReadKV() error = %v", err)
 	}
 }
+
+func TestOpenBaoControlClientOnlyWrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte("control-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewOpenBaoControlClient("https://bao.example.test", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	requests := 0
+	client.client.httpClient.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.Method != http.MethodPost || request.Header.Get("X-Vault-Token") != "control-token" {
+			t.Fatalf("request method=%s token=%q", request.Method, request.Header.Get("X-Vault-Token"))
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if request.URL.Path == "/v1/kv/data/app" {
+			data, _ := payload["data"].(map[string]any)
+			if data["api_key"] != "fixture-secret" {
+				t.Fatalf("KV payload = %#v", payload)
+			}
+		}
+		return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header), Request: request}, nil
+	})
+	secret := NewSensitiveValue([]byte("fixture-secret"))
+	defer secret.Destroy()
+	if err := client.WriteKV(context.Background(), KVWrite{Path: "kv/data/app", Values: map[string]*SensitiveValue{"api_key": secret}}); err != nil {
+		t.Fatalf("WriteKV() error = %v", err)
+	}
+	if err := client.ConfigureDatabaseRole(context.Background(), DatabaseRole{Name: "app", ConnectionName: "postgres", CreationStatements: []string{"CREATE ROLE"}, DefaultTTL: time.Minute, MaxTTL: 10 * time.Minute}); err != nil {
+		t.Fatalf("ConfigureDatabaseRole() error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d", requests)
+	}
+}
+
+var _ ControlWriter = (*OpenBaoControlClient)(nil)

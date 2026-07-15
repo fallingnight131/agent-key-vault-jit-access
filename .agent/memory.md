@@ -55,6 +55,7 @@
 - 2026-07-15：Web Session 固定 8 小时，业务库只存 SHA-256 哈希；Session Cookie 为 HttpOnly + SameSite=Strict，HTTPS 公开源默认 Secure，变更路由同时校验 Origin 和可读 CSRF Cookie/请求头。
 - 2026-07-15：Web 用户只能列出和变更 owner 匹配的 Agent；Agent Token 只在注册/轮换响应返回一次，列表仅含过期时间；已撤销 Token 可在行锁保护下重新生成。
 - 2026-07-15：初始管理员通过独立 CLI 从互动 TTY 无回显双次读取密码，不接受密码参数/环境/文件；账号开通与改密依需求不在 MVP，Web 只管理已有非管理员的启停和 `APPROVE_ALL`。
+- 2026-07-15：OpenBao 控制客户端是独立导出类型，只满足 `ControlWriter` 的 KV v2 和 Database Role 写方法；读取、Transit、动态签发和 Lease 撤销仅存于执行客户端。
 
 ## Agent 维护区
 
