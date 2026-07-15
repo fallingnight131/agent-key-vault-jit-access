@@ -1,23 +1,23 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-007`｜下一项：`AKV-007.b`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-007`｜下一项：`AKV-007.c`
 
 ## 恢复点
 
-- 所有已占用执行终态已强制进入 5 秒回收；失败持久阻断并创建 OPEN incident，代理不再忽略 Finish/Close 错误。
-- 下一轮 `AKV-007.b` 实现审批/Grant 超时、主动撤销、任务结束/失联时撤销未消费 Grant，并输出待取消执行。
-- 主动撤销未发出操作必须完全阻止；执行中只做尽力取消且不承诺回滚业务结果。
+- Worker 已实现申请/Grant 超时、45 秒失联、未消费撤销和执行中取消 ID；主动撤销权限与原子竞争已建立。
+- 下一轮 `AKV-007.c` 将数据库取消请求投递到 execution-proxy 的活动 context，并补正常任务结束触发相同回收。
+- 取消投递采用数据库轮询，不引入难替换消息基础设施；已完成业务结果不承诺回滚。
 
 ## 当前工作项
 
 下一最小切片：
 
 ```text
-ID / 目标：AKV-007.b / 实现撤销与超时 Worker
-验收条件：审批 30 分钟、Grant 期限、任务 45 秒原子过期；主动撤销权限；未消费零外部调用；执行中返回取消任务；make verify/真实 PG 通过
-修改范围：生命周期服务/仓储、Worker 轮询与命令入口、并发测试、memory/progress
+ID / 目标：AKV-007.c / 投递执行取消与任务结束回收
+验收条件：活动执行注册 cancel；revoked_at/任务终止 5 秒内触发 context 取消；正常 end_task 撤销未完成授权；无活动执行安全幂等；make verify/真实 PG 通过
+修改范围：取消注册表/轮询、代理集成、任务仓储、测试、memory/progress
 验证命令：make verify
-风险 / 下一步：撤销与占用竞争必须由单个条件更新决定；不能读后写
+风险 / 下一步：跨进程取消只能尽力；代理崩溃由 Worker 的回收恢复路径兜底
 ```
 
 ## 队列
@@ -30,7 +30,7 @@ ID / 目标：AKV-007.b / 实现撤销与超时 Worker
 | `AKV-004` | `DONE` | 002 | 安全目标/凭证目录与 OpenBao 权限隔离 |
 | `AKV-005` | `DONE` | 003,004 | 不可变申请、审批竞争、绑定 Grant 及 PostgreSQL 原子占用 |
 | `AKV-006` | `DONE` | 005 | 独立受控代理、HTTP/PG/Transit、动态凭证与真实适配器 |
-| `AKV-007` | `IN_PROGRESS` | 005,006 | 回收/异常阻断已完成；待撤销、超时、审计清理 |
+| `AKV-007` | `IN_PROGRESS` | 005,006 | 回收/异常/超时/撤销已完成；待取消投递和审计清理 |
 | `AKV-008` | `BACKLOG` | 003-007 | MCP 工具和 Web 控制面 |
 | `AKV-009` | `BACKLOG` | 008 | 需求第 5 节全部端到端安全验收与演示 |
 
@@ -43,11 +43,10 @@ ID / 目标：AKV-007.b / 实现撤销与超时 Worker
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、代理/仓储 race、`git diff --check` 和 `make test-migrations-postgres` 通过；真实 PG 验证 Reclaim/Grant 失败态及单 OPEN incident。
+- 2026-07-15：`make verify`、生命周期/仓储 race、`git diff --check` 和 `make test-migrations-postgres` 通过；真实 PG 验证撤销不可占用及三类超时/失联状态。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-005.b`：实现审批权限、首个决定竞争及批准同事务 Grant｜下一步 `AKV-005.c`｜计划提交 `feat(authz): enforce approval competition`
 - 2026-07-15｜`AKV-005.c`：实现完整上下文单调用占用契约及并发/重放安全测试｜下一步 `AKV-005.d`｜计划提交 `feat(authz): guard one-time grant claims`
 - 2026-07-15｜`AKV-005.d`：实现 PostgreSQL 审批事务和单 SQL 占用并通过真实并发测试｜下一步 `AKV-006.a`｜计划提交 `feat(store): persist atomic authorization`
 - 2026-07-15｜`AKV-006.a`：实现先占用的 HTTP 注入、固定目标、无重试/重定向及多形式脱敏清零｜下一步 `AKV-006.b`｜计划提交 `feat(proxy): execute guarded HTTP operations`
@@ -57,6 +56,7 @@ ID / 目标：AKV-007.b / 实现撤销与超时 Worker
 - 2026-07-15｜`AKV-006.e`：实现 0600 Token OpenBao 执行客户端与结构化 pgx 目标工厂｜下一步 `AKV-006.f`｜计划提交 `feat(proxy): add real execution adapters`
 - 2026-07-15｜`AKV-006.f`：装配 PostgreSQL Agent 认证、0600 配置和三类受保护执行路由｜下一步 `AKV-007.a`｜计划提交 `feat(proxy): assemble authenticated runtime`
 - 2026-07-15｜`AKV-007.a`：统一 5 秒回收并将失败永久阻断为 incident｜下一步 `AKV-007.b`｜计划提交 `feat(lifecycle): enforce terminal reclaim`
+- 2026-07-15｜`AKV-007.b`：实现撤销权限、申请/Grant 超时、45 秒失联和 Worker｜下一步 `AKV-007.c`｜计划提交 `feat(worker): sweep revocation and timeouts`
 
 ## MVP 验收
 

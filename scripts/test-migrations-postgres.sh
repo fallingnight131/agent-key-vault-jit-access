@@ -25,7 +25,7 @@ test "$trigger_count" -eq 1
 
 AKV_TEST_POSTGRES_DSN="host=$postgres_socket user=akvtest dbname=akvtest sslmode=disable" \
 	GOCACHE="${GOCACHE:-/tmp/akv-go-cache}" \
-	go test -race ./internal/store -run TestPostgreSQLAuthorizationConcurrency -count=1
+	go test -race ./internal/store -run TestPostgreSQL -count=1
 
 AKV_TEST_POSTGRES_SOCKET="$postgres_socket" \
 	GOCACHE="${GOCACHE:-/tmp/akv-go-cache}" \

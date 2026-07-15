@@ -170,7 +170,7 @@ const (
 func seedAuthorizationDatabase(t *testing.T, database *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := database.ExecContext(ctx, `TRUNCATE users CASCADE`); err != nil {
+	if _, err := database.ExecContext(ctx, `TRUNCATE targets, users CASCADE`); err != nil {
 		t.Fatalf("truncate database: %v", err)
 	}
 	now := time.Now().UTC()
