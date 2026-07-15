@@ -33,7 +33,7 @@ type Record struct {
 type Repository interface {
 	CreateTask(context.Context, Record) error
 	HeartbeatActiveTask(context.Context, string, string, time.Time) error
-	EndActiveTask(context.Context, string, string, domain.TaskStatus, time.Time) error
+	EndActiveTask(context.Context, string, string, domain.TaskStatus, time.Time) ([]string, error)
 	FindActiveTask(context.Context, string, string) (Record, error)
 	MarkAgentLostBefore(context.Context, time.Time, time.Time) ([]Record, error)
 }
@@ -88,14 +88,15 @@ func (service *Service) ValidateActive(ctx context.Context, agentID, taskID stri
 	return record, nil
 }
 
-func (service *Service) End(ctx context.Context, agentID, taskID string, outcome domain.TaskStatus) error {
+func (service *Service) End(ctx context.Context, agentID, taskID string, outcome domain.TaskStatus) ([]string, error) {
 	if agentID == "" || taskID == "" || !domain.TaskActive.CanTransitionTo(outcome) {
-		return ErrInvalidInput
+		return nil, ErrInvalidInput
 	}
-	if err := service.repository.EndActiveTask(ctx, taskID, agentID, outcome, service.now()); err != nil {
-		return ErrTaskUnavailable
+	executionIDs, err := service.repository.EndActiveTask(ctx, taskID, agentID, outcome, service.now())
+	if err != nil {
+		return nil, ErrTaskUnavailable
 	}
-	return nil
+	return executionIDs, nil
 }
 
 // SweepAgentLost atomically ends stale tasks and returns them for authorization reclaim.

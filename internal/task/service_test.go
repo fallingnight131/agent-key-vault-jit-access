@@ -30,14 +30,14 @@ func (repository *fakeRepository) HeartbeatActiveTask(_ context.Context, taskID,
 	return nil
 }
 
-func (repository *fakeRepository) EndActiveTask(_ context.Context, taskID, agentID string, status domain.TaskStatus, at time.Time) error {
+func (repository *fakeRepository) EndActiveTask(_ context.Context, taskID, agentID string, status domain.TaskStatus, at time.Time) ([]string, error) {
 	record, ok := repository.records[taskID]
 	if !ok || record.AgentID != agentID || record.Status != domain.TaskActive {
-		return ErrTaskUnavailable
+		return nil, ErrTaskUnavailable
 	}
 	record.Status, record.EndedAt = status, &at
 	repository.records[taskID] = record
-	return nil
+	return nil, nil
 }
 
 func (repository *fakeRepository) FindActiveTask(_ context.Context, taskID, agentID string) (Record, error) {
@@ -90,7 +90,7 @@ func TestTaskOwnershipAndTerminalState(t *testing.T) {
 	if err := service.Heartbeat(context.Background(), "agent-b", record.ID); !errors.Is(err, ErrTaskUnavailable) {
 		t.Fatalf("cross-agent Heartbeat() error = %v", err)
 	}
-	if err := service.End(context.Background(), "agent-a", record.ID, domain.TaskCompleted); err != nil {
+	if _, err := service.End(context.Background(), "agent-a", record.ID, domain.TaskCompleted); err != nil {
 		t.Fatalf("End() error = %v", err)
 	}
 	if err := service.Heartbeat(context.Background(), "agent-a", record.ID); !errors.Is(err, ErrTaskUnavailable) {

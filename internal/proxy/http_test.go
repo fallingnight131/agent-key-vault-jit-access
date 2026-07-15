@@ -164,6 +164,39 @@ func TestHTTPProxyDoesNotFollowRedirect(t *testing.T) {
 	}
 }
 
+func TestHTTPProxyCancellationBecomesCancelledAndReclaimed(t *testing.T) {
+	started := make(chan struct{})
+	lifecycle := &fakeLifecycle{}
+	proxy := NewHTTPProxy(
+		&fakePlans{validPlan("https://target.example.test")}, &fakeGuard{},
+		&fakeVault{values: map[string]*vault.SensitiveValue{"api_key": vault.NewSensitiveValue([]byte("fixture-api-key"))}},
+		lifecycle,
+	)
+	registry := NewCancellationRegistry()
+	proxy.SetCancellationRegistry(registry)
+	proxy.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		close(started)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+	result := make(chan error, 1)
+	go func() {
+		_, err := proxy.Execute(context.Background(), "request", "agent", "task")
+		result <- err
+	}()
+	<-started
+	if !registry.Cancel("execution") {
+		t.Fatal("active execution was not registered")
+	}
+	var publicError *PublicError
+	if err := <-result; !errors.As(err, &publicError) || publicError.Code != "TARGET_CANCELLED" {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(lifecycle.finishes) != 1 || lifecycle.finishes[0] != domain.ExecutionCancelled || len(lifecycle.reclaims) != 1 || !lifecycle.reclaims[0] {
+		t.Fatalf("finishes=%v reclaims=%v", lifecycle.finishes, lifecycle.reclaims)
+	}
+}
+
 func validPlan(baseURL string) Plan {
 	var operationHash [32]byte
 	operationHash[0] = 1

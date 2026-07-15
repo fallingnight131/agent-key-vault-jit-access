@@ -41,16 +41,21 @@ type PostgreSQLResult struct {
 }
 
 type PostgreSQLProxy struct {
-	plans     PlanStore
-	guard     Guard
-	vault     vault.ExecutionClient
-	lifecycle Lifecycle
-	factory   SQLConnectionFactory
-	now       func() time.Time
+	plans         PlanStore
+	guard         Guard
+	vault         vault.ExecutionClient
+	lifecycle     Lifecycle
+	factory       SQLConnectionFactory
+	now           func() time.Time
+	cancellations *CancellationRegistry
 }
 
 func NewPostgreSQLProxy(plans PlanStore, guard Guard, vaultClient vault.ExecutionClient, lifecycle Lifecycle, factory SQLConnectionFactory) *PostgreSQLProxy {
-	return &PostgreSQLProxy{plans: plans, guard: guard, vault: vaultClient, lifecycle: lifecycle, factory: factory, now: time.Now}
+	return &PostgreSQLProxy{plans: plans, guard: guard, vault: vaultClient, lifecycle: lifecycle, factory: factory, now: time.Now, cancellations: NewCancellationRegistry()}
+}
+
+func (proxy *PostgreSQLProxy) SetCancellationRegistry(registry *CancellationRegistry) {
+	proxy.cancellations = registry
 }
 
 func (proxy *PostgreSQLProxy) Execute(ctx context.Context, requestID, authenticatedAgentID, taskID string) (PostgreSQLResult, error) {
@@ -72,6 +77,8 @@ func (proxy *PostgreSQLProxy) Execute(ctx context.Context, requestID, authentica
 	if err != nil {
 		return PostgreSQLResult{}, &PublicError{Code: "EXECUTION_STATE_FAILED"}
 	}
+	executionContext, release := proxy.cancellations.Track(ctx, executionID)
+	defer release()
 	referenceKind := vault.ReferenceStaticKV
 	credentialTTL := PostgreSQLStatementTimeout
 	if plan.Operation.Kind == authorization.OperationPostgreSQLBatch {
@@ -85,7 +92,7 @@ func (proxy *PostgreSQLProxy) Execute(ctx context.Context, requestID, authentica
 		}
 		return PostgreSQLResult{}, &PublicError{Code: "DYNAMIC_CREDENTIAL_REQUIRED"}
 	}
-	handle, err := vault.Acquire(ctx, proxy.vault, vault.Reference{
+	handle, err := vault.Acquire(executionContext, proxy.vault, vault.Reference{
 		Kind: referenceKind, Path: plan.Credential.VaultPath, Version: plan.Credential.VaultVersion,
 		TTL: credentialTTL,
 	})
@@ -96,7 +103,7 @@ func (proxy *PostgreSQLProxy) Execute(ctx context.Context, requestID, authentica
 		return PostgreSQLResult{}, &PublicError{Code: "VAULT_UNAVAILABLE"}
 	}
 	handleCleanup := func(cleanupContext context.Context) error { return handle.Close(cleanupContext) }
-	database, err := proxy.factory.Connect(ctx, plan.Target.ConnectionConfig, handle.Values)
+	database, err := proxy.factory.Connect(executionContext, plan.Target.ConnectionConfig, handle.Values)
 	if err != nil {
 		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "TARGET_UNAVAILABLE", handleCleanup, proxy.now); finalError != nil {
 			return PostgreSQLResult{}, finalError
@@ -108,9 +115,9 @@ func (proxy *PostgreSQLProxy) Execute(ctx context.Context, requestID, authentica
 	}
 
 	if plan.Operation.Kind == authorization.OperationPostgreSQLStatement {
-		return proxy.executeStatement(ctx, executionID, database, plan.Operation.PostgreSQL.Statements[0], cleanup)
+		return proxy.executeStatement(executionContext, executionID, database, plan.Operation.PostgreSQL.Statements[0], cleanup)
 	}
-	return proxy.executeBatch(ctx, executionID, database, plan.Operation.PostgreSQL.Statements, cleanup)
+	return proxy.executeBatch(executionContext, executionID, database, plan.Operation.PostgreSQL.Statements, cleanup)
 }
 
 func (proxy *PostgreSQLProxy) executeStatement(ctx context.Context, executionID string, database SQLDatabase, statement authorization.SQLStatement, cleanup Cleanup) (PostgreSQLResult, error) {
@@ -187,6 +194,9 @@ func joinCleanup(prior error, cleanup Cleanup) Cleanup {
 func databaseFailure(ctx context.Context) (domain.ExecutionStatus, string) {
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return domain.ExecutionTimedOut, "TARGET_TIMEOUT"
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return domain.ExecutionCancelled, "TARGET_CANCELLED"
 	}
 	return domain.ExecutionFailed, "TARGET_OPERATION_FAILED"
 }

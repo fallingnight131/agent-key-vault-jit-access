@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/fallingnight/akv/internal/authorization"
@@ -11,15 +12,20 @@ import (
 )
 
 type SignProxy struct {
-	plans     PlanStore
-	guard     Guard
-	vault     vault.ExecutionClient
-	lifecycle Lifecycle
-	now       func() time.Time
+	plans         PlanStore
+	guard         Guard
+	vault         vault.ExecutionClient
+	lifecycle     Lifecycle
+	now           func() time.Time
+	cancellations *CancellationRegistry
 }
 
 func NewSignProxy(plans PlanStore, guard Guard, vaultClient vault.ExecutionClient, lifecycle Lifecycle) *SignProxy {
-	return &SignProxy{plans: plans, guard: guard, vault: vaultClient, lifecycle: lifecycle, now: time.Now}
+	return &SignProxy{plans: plans, guard: guard, vault: vaultClient, lifecycle: lifecycle, now: time.Now, cancellations: NewCancellationRegistry()}
+}
+
+func (proxy *SignProxy) SetCancellationRegistry(registry *CancellationRegistry) {
+	proxy.cancellations = registry
 }
 
 func (proxy *SignProxy) Execute(ctx context.Context, requestID, authenticatedAgentID, taskID string) ([]byte, error) {
@@ -40,9 +46,15 @@ func (proxy *SignProxy) Execute(ctx context.Context, requestID, authenticatedAge
 	if err != nil {
 		return nil, &PublicError{Code: "EXECUTION_STATE_FAILED"}
 	}
-	signature, err := proxy.vault.Sign(ctx, plan.Credential.VaultPath, plan.Operation.Sign.DigestAlgorithm, plan.Operation.Sign.Digest)
+	executionContext, release := proxy.cancellations.Track(ctx, executionID)
+	defer release()
+	signature, err := proxy.vault.Sign(executionContext, plan.Credential.VaultPath, plan.Operation.Sign.DigestAlgorithm, plan.Operation.Sign.Digest)
 	if err != nil {
-		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "SIGN_FAILED", nil, proxy.now); finalError != nil {
+		status, code := domain.ExecutionFailed, "SIGN_FAILED"
+		if errors.Is(executionContext.Err(), context.Canceled) {
+			status, code = domain.ExecutionCancelled, "SIGN_CANCELLED"
+		}
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, status, code, nil, proxy.now); finalError != nil {
 			return nil, finalError
 		}
 		return nil, &PublicError{Code: "SIGN_FAILED"}

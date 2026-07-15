@@ -62,12 +62,13 @@ type HTTPResult struct {
 }
 
 type HTTPProxy struct {
-	plans     PlanStore
-	guard     Guard
-	vault     vault.ExecutionClient
-	lifecycle Lifecycle
-	client    *http.Client
-	now       func() time.Time
+	plans         PlanStore
+	guard         Guard
+	vault         vault.ExecutionClient
+	lifecycle     Lifecycle
+	client        *http.Client
+	now           func() time.Time
+	cancellations *CancellationRegistry
 }
 
 func NewHTTPProxy(plans PlanStore, guard Guard, vaultClient vault.ExecutionClient, lifecycle Lifecycle) *HTTPProxy {
@@ -76,8 +77,13 @@ func NewHTTPProxy(plans PlanStore, guard Guard, vaultClient vault.ExecutionClien
 		client: &http.Client{
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
-		now: time.Now,
+		now:           time.Now,
+		cancellations: NewCancellationRegistry(),
 	}
+}
+
+func (proxy *HTTPProxy) SetCancellationRegistry(registry *CancellationRegistry) {
+	proxy.cancellations = registry
 }
 
 func (proxy *HTTPProxy) Execute(ctx context.Context, requestID, authenticatedAgentID, taskID string) (HTTPResult, error) {
@@ -100,8 +106,10 @@ func (proxy *HTTPProxy) Execute(ctx context.Context, requestID, authenticatedAge
 	if err != nil {
 		return HTTPResult{}, &PublicError{Code: "EXECUTION_STATE_FAILED"}
 	}
+	executionContext, release := proxy.cancellations.Track(ctx, executionID)
+	defer release()
 
-	handle, err := vault.Acquire(ctx, proxy.vault, vault.Reference{
+	handle, err := vault.Acquire(executionContext, proxy.vault, vault.Reference{
 		Kind: vault.ReferenceStaticKV, Path: plan.Credential.VaultPath, Version: plan.Credential.VaultVersion,
 	})
 	if err != nil {
@@ -116,7 +124,7 @@ func (proxy *HTTPProxy) Execute(ctx context.Context, requestID, authenticatedAge
 		return handle.Close(cleanupContext)
 	}
 
-	request, err := buildHTTPRequest(ctx, plan, handle.Values)
+	request, err := buildHTTPRequest(executionContext, plan, handle.Values)
 	if err != nil {
 		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "INVALID_EXECUTION_PLAN", cleanup, proxy.now); finalError != nil {
 			return HTTPResult{}, finalError
@@ -133,6 +141,8 @@ func (proxy *HTTPProxy) Execute(ctx context.Context, requestID, authenticatedAge
 		code := "TARGET_UNAVAILABLE"
 		if errors.Is(timeoutContext.Err(), context.DeadlineExceeded) {
 			status, code = domain.ExecutionTimedOut, "TARGET_TIMEOUT"
+		} else if errors.Is(timeoutContext.Err(), context.Canceled) {
+			status, code = domain.ExecutionCancelled, "TARGET_CANCELLED"
 		}
 		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, status, code, cleanup, proxy.now); finalError != nil {
 			return HTTPResult{}, finalError

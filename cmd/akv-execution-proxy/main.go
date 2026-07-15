@@ -57,15 +57,23 @@ func main() {
 	authorizationRepository := store.NewPostgreSQLAuthorizationRepository(database)
 	executionRepository := store.NewPostgreSQLExecutionRepository(database)
 	guard := authorization.NewExecutionGuard(authorizationRepository)
+	httpProxy := proxy.NewHTTPProxy(executionRepository, guard, vaultClient, executionRepository)
+	postgresqlProxy := proxy.NewPostgreSQLProxy(executionRepository, guard, vaultClient, executionRepository, proxy.PGXConnectionFactory{})
+	signProxy := proxy.NewSignProxy(executionRepository, guard, vaultClient, executionRepository)
+	cancellations := proxy.NewCancellationRegistry()
+	httpProxy.SetCancellationRegistry(cancellations)
+	postgresqlProxy.SetCancellationRegistry(cancellations)
+	signProxy.SetCancellationRegistry(cancellations)
 	runtime := &proxy.Runtime{
 		Authenticator: agent.NewService(store.NewPostgreSQLAgentRepository(database)),
-		HTTP:          proxy.NewHTTPProxy(executionRepository, guard, vaultClient, executionRepository),
-		PostgreSQL:    proxy.NewPostgreSQLProxy(executionRepository, guard, vaultClient, executionRepository, proxy.PGXConnectionFactory{}),
-		Sign:          proxy.NewSignProxy(executionRepository, guard, vaultClient, executionRepository),
+		HTTP:          httpProxy,
+		PostgreSQL:    postgresqlProxy,
+		Sign:          signProxy,
 	}
 	server := proxy.NewRuntimeServer(config, logger, runtime)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go cancellations.Poll(ctx, executionRepository, time.Second)
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("execution proxy listening", "address", config.ListenAddress)

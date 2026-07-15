@@ -212,6 +212,29 @@ WHERE r.id=$1 AND g.id=e.grant_id AND g.status='RECLAIMING'`, reclaimID, grantSt
 	return nil
 }
 
+func (repository *PostgreSQLExecutionRepository) ListCancellationRequested(ctx context.Context) ([]string, error) {
+	rows, err := repository.database.QueryContext(ctx, `
+SELECT e.id
+FROM executions e JOIN operation_grants g ON g.id=e.grant_id
+WHERE e.status='EXECUTING' AND g.status='EXECUTING' AND g.revoked_at IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list cancellation requests: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 func randomExecutionID() (string, error) {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {

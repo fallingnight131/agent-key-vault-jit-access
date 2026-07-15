@@ -48,6 +48,7 @@
 - 2026-07-15：execution-proxy 路由只接受 `request_id`/`task_id`，先用 PostgreSQL 哈希 Token 仓储认证 Agent；数据库 DSN 与 OpenBao Token 均从 group/other 不可访问文件加载，进程装配不包含控制面 Vault 写能力。
 - 2026-07-15：已占用执行的所有结果通过统一 5 秒 finalizer 进入 `RECLAIMING`；清理失败原子落 `RECLAIM_FAILED` 并创建 OPEN incident，Grant 永不恢复，静态材料只清内存不删除 Vault 源值。
 - 2026-07-15：Worker 每 5 秒原子过期 30 分钟申请/到期未占用 Grant，并在 45 秒心跳边界结束任务、撤销未消费 Grant；主动撤销与占用由条件更新竞争，执行中写 `revoked_at` 并产生取消 ID。
+- 2026-07-15：execution-proxy 每秒轮询已撤销 EXECUTING Grant，用进程内 registry 取消活动 context；HTTP/PG/Sign 映射为 `CANCELLED` 后仍回收，正常 end_task 同事务撤销未完成 Grant。
 
 ## Agent 维护区
 
