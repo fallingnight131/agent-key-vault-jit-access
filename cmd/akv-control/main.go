@@ -16,6 +16,7 @@ import (
 	"github.com/fallingnight/akv/internal/catalog"
 	"github.com/fallingnight/akv/internal/control"
 	"github.com/fallingnight/akv/internal/identity"
+	"github.com/fallingnight/akv/internal/lifecycle"
 	"github.com/fallingnight/akv/internal/proxy"
 	"github.com/fallingnight/akv/internal/store"
 	"github.com/fallingnight/akv/internal/task"
@@ -75,7 +76,14 @@ func main() {
 		logger.Error("identity service initialization failed")
 		os.Exit(1)
 	}
-	server := control.NewServer(config, logger, runtime, &control.WebRuntime{Identity: identityService, Agents: agentService, Users: identityService, Catalog: catalogService})
+	authorizationRepository := store.NewPostgreSQLAuthorizationRepository(database)
+	webRuntime := &control.WebRuntime{
+		Identity: identityService, Agents: agentService, Users: identityService, Catalog: catalogService,
+		ApprovalReader: store.NewPostgreSQLWebRepository(database),
+		Approvals:      authorization.NewApprovalService(authorizationRepository),
+		Revocations:    lifecycle.NewService(store.NewPostgreSQLLifecycleRepository(database)),
+	}
+	server := control.NewServer(config, logger, runtime, webRuntime)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

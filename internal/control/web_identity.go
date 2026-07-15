@@ -23,11 +23,14 @@ type WebIdentity interface {
 }
 
 type WebRuntime struct {
-	Identity WebIdentity
-	Agents   WebAgentManager
-	Users    WebUserManager
-	Catalog  WebCatalogManager
-	config   Config
+	Identity       WebIdentity
+	Agents         WebAgentManager
+	Users          WebUserManager
+	Catalog        WebCatalogManager
+	ApprovalReader WebApprovalReader
+	Approvals      WebApprovalDecider
+	Revocations    WebRevoker
+	config         Config
 }
 
 func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
@@ -51,6 +54,14 @@ func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
 		mux.HandleFunc("POST /v1/web/targets", runtime.createTarget)
 		mux.HandleFunc("PATCH /v1/web/targets/{target_id}", runtime.updateTarget)
 		mux.HandleFunc("PATCH /v1/web/credentials/{credential_id}", runtime.updateCredential)
+	}
+	if runtime.ApprovalReader != nil && runtime.Approvals != nil && runtime.Revocations != nil {
+		mux.HandleFunc("GET /v1/web/authorizations", runtime.listAuthorizations)
+		mux.HandleFunc("POST /v1/web/authorizations/{request_id}/decision", runtime.decideAuthorization)
+		mux.HandleFunc("POST /v1/web/authorizations/{request_id}/revoke", runtime.revokeAuthorization)
+		mux.HandleFunc("GET /v1/web/authorizations/{request_id}/audit", runtime.authorizationAudit)
+		mux.HandleFunc("GET /v1/web/incidents", runtime.listIncidents)
+		mux.HandleFunc("POST /v1/web/incidents/{incident_id}/resolve", runtime.resolveIncident)
 	}
 }
 

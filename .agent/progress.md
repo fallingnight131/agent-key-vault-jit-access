@@ -1,6 +1,6 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.f`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.g`
 
 ## 恢复点
 
@@ -11,7 +11,8 @@
 - 初始管理员命令只允许互动终端无回显输入两次密码；Web 管理员可列出已有用户并设置启停/`APPROVE_ALL`，唯一管理员不可变更。
 - OpenBao 控制客户端已仅实现 KV/Transit Key/Database Role 配置写入，对外类型无读取、签名、动态签发或 Lease 撤销方法。
 - 管理员目标/凭证 API 已支持录入、更新和停用；Vault 路径由服务端生成，秘密字节写入后清零且不返回路径。
-- 下一轮 `AKV-008.f` 实现待审批列表、决策、主动撤销、审计时间线与异常处置 Web API。
+- Web 已按 owner/APPROVE_ALL/管理员权限列出申请，展示冻结操作与风险，支持原子决策、撤销、审计链和 incident 关闭；关闭告警不恢复 Grant。
+- 下一轮 `AKV-008.g` 实现可用的人类 Web 前端，覆盖登录、Agent、目录、审批、审计和告警。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
 
 ## 当前工作项
@@ -19,11 +20,11 @@
 下一最小切片：
 
 ```text
-ID / 目标：AKV-008.f / 实现审批、撤销、审计与异常处置 Web API
-验收条件：普通用户仅见/审自有 Agent，APPROVE_ALL/管理员可全局审批；展示任务、原因、目标、凭证别名、冻结操作、有效期与风险；决策/撤销并发安全；审计关联链可查；管理员可关闭已处置 incident；CSRF 与真实 PG 集成
-修改范围：审批/审计/异常查询仓储、Web API/DTO、测试、memory/progress
+ID / 目标：AKV-008.g / 实现 Web 前端
+验收条件：登录/登出；Agent 注册与 Token 一次展示；管理员用户和目录管理；申请详情、风险、决策/撤销；审计时间线和告警；无凭证明文查看/导出；可访问性与浏览器端 CSRF 联调
+修改范围：静态 HTML/CSS/JS、路由/安全头、前端测试、memory/progress
 验证命令：make verify；make test-migrations-postgres
-风险 / 下一步：审批 DTO 不得直接序列化内部记录，operation 可展示但必须排除认证头且不返回 vault_path
+风险 / 下一步：前端不得将 Agent Token 或凭证输入写 localStorage/console，必须用 textContent 渲染业务数据
 ```
 
 ## 队列
@@ -53,7 +54,6 @@ ID / 目标：AKV-008.f / 实现审批、撤销、审计与异常处置 Web API
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-007.b`：实现撤销权限、申请/Grant 超时、45 秒失联和 Worker｜下一步 `AKV-007.c`｜计划提交 `feat(worker): sweep revocation and timeouts`
 - 2026-07-15｜`AKV-007.c`：投递执行取消 context 并让 end_task 撤销未完成 Grant｜下一步 `AKV-007.d`｜计划提交 `feat(proxy): deliver execution cancellation`
 - 2026-07-15｜`AKV-007.d`：实现状态触发审计、关联链与 180 天限量实际清理｜下一步 `AKV-007.e`｜计划提交 `feat(audit): persist safe lifecycle events`
 - 2026-07-15｜`AKV-007.e`：持久化 Lease 并恢复超时/失败回收直至关闭 incident｜下一步 `AKV-008.a`｜计划提交 `feat(worker): recover interrupted executions`
@@ -63,6 +63,7 @@ ID / 目标：AKV-008.f / 实现审批、撤销、审计与异常处置 Web API
 - 2026-07-15｜`AKV-008.d`：实现无回显 bootstrap 和已有用户启停/APPROVE_ALL，保护唯一管理员｜下一步 `AKV-008.e`｜计划提交 `feat(control): manage human users`
 - 2026-07-15｜`AKV-008.e1`：实现无读取能力的 OpenBao KV/Database Role 控制写客户端｜下一步 `AKV-008.e2`｜计划提交 `feat(vault): add control-plane writer`
 - 2026-07-15｜`AKV-008.e2`：实现服务端路径的目标/凭证录入更新停用与无秘密 Web DTO｜下一步 `AKV-008.f`｜计划提交 `feat(control): manage credential catalog`
+- 2026-07-15｜`AKV-008.f`：实现权限隔离的申请查询、原子决策/撤销、审计链和不恢复 Grant 的 incident 处置｜下一步 `AKV-008.g`｜计划提交 `feat(control): expose approval workspace`
 
 ## MVP 验收
 

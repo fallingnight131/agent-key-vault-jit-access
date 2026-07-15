@@ -6,12 +6,14 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/fallingnight/akv/internal/agent"
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/catalog"
 	"github.com/fallingnight/akv/internal/domain"
 	"github.com/fallingnight/akv/internal/identity"
+	"github.com/fallingnight/akv/internal/lifecycle"
 	"github.com/fallingnight/akv/internal/task"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -103,6 +105,30 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 	}
 	if _, err := requestRepository.GetAuthorizationStatus(ctx, "00000000-0000-4000-8000-000000000099", requestRecord.ID); err == nil {
 		t.Fatal("cross-agent status lookup succeeded")
+	}
+	webRepository := NewPostgreSQLWebRepository(database)
+	requests, err := webRepository.ListAuthorizationRequests(ctx, adminActor)
+	if err != nil || len(requests) != 1 || requests[0].CredentialAlias != "default" || len(requests[0].Operation) == 0 {
+		t.Fatalf("ListAuthorizationRequests() requests=%+v error=%v", requests, err)
+	}
+	const unrelatedUserID = "00000000-0000-4000-8000-000000000088"
+	if _, err := database.ExecContext(ctx, `INSERT INTO users (id,username,password_hash,status) VALUES ($1,'unrelated','fixture-hash','ACTIVE')`, unrelatedUserID); err != nil {
+		t.Fatalf("seed unrelated user: %v", err)
+	}
+	unrelatedRequests, err := webRepository.ListAuthorizationRequests(ctx, identity.User{ID: unrelatedUserID, OwnerActive: true})
+	if err != nil || len(unrelatedRequests) != 0 {
+		t.Fatalf("unrelated ListAuthorizationRequests() requests=%+v error=%v", unrelatedRequests, err)
+	}
+	ttl := time.Minute
+	if _, _, err := authorization.NewApprovalService(NewPostgreSQLAuthorizationRepository(database)).Decide(ctx, adminActor, requestRecord.ID, authorization.DecisionApproved, &ttl); err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	auditEvents, err := webRepository.ReadAuthorizationAudit(ctx, adminActor, requestRecord.ID)
+	if err != nil || len(auditEvents) < 2 {
+		t.Fatalf("ReadAuthorizationAudit() events=%+v error=%v", auditEvents, err)
+	}
+	if _, err := lifecycle.NewService(NewPostgreSQLLifecycleRepository(database)).Revoke(ctx, adminActor, requestRecord.ID); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
 	}
 	if _, err := taskService.End(ctx, principal.AgentID, taskRecord.ID, domain.TaskCompleted); err != nil {
 		t.Fatalf("End() error = %v", err)

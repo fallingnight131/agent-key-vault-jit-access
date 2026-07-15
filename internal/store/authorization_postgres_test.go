@@ -149,6 +149,16 @@ func TestPostgreSQLAuthorizationConcurrency(t *testing.T) {
 	if reclaimStatus != "RECLAIM_FAILED" || grantStatus != "RECLAIM_FAILED" || incidents != 1 {
 		t.Fatalf("reclaim=%s grant=%s incidents=%d", reclaimStatus, grantStatus, incidents)
 	}
+	var incidentID string
+	if err := database.QueryRow(`SELECT id FROM security_incidents WHERE reclaim_id=$1`, reclaimID).Scan(&incidentID); err != nil {
+		t.Fatalf("read incident: %v", err)
+	}
+	if err := NewPostgreSQLWebRepository(database).ResolveSecurityIncident(context.Background(), identity.User{ID: testUserID, IsAdmin: true, OwnerActive: true}, incidentID); err != nil {
+		t.Fatalf("ResolveSecurityIncident() error = %v", err)
+	}
+	if err := database.QueryRow(`SELECT status FROM operation_grants WHERE id=$1`, testGrantID).Scan(&grantStatus); err != nil || grantStatus != "RECLAIM_FAILED" {
+		t.Fatalf("resolved incident restored grant status=%s error=%v", grantStatus, err)
+	}
 	if _, err := guard.Claim(context.Background(), claim); !errors.Is(err, authorization.ErrClaimDenied) {
 		t.Fatalf("replay Claim() error = %v", err)
 	}
