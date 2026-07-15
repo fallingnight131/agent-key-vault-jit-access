@@ -108,10 +108,10 @@ onBeforeUnmount(clearToken)
   <dialog ref="tokenDialog" @close="clearToken">
     <form method="dialog">
       <p class="eyebrow">仅显示一次</p>
-      <h2>保存 Agent Token</h2>
-      <p>立即写入 MCP 的 0600 配置文件。关闭后无法再次查看。</p>
+      <h2>交付 Agent Token</h2>
+      <p>立即安全交给 Agent 运行时。不要写入 Prompt、项目文件或日志；关闭后无法再次查看。</p>
       <pre>{{ token }}</pre>
-      <button type="submit">我已安全保存</button>
+      <button type="submit">我已安全交付</button>
     </form>
   </dialog>
 </template>

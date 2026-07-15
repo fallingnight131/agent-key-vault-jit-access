@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 1 | 未人工批准无法使用凭证 | `TestHTTPProxyClaimsBeforeVaultAndTarget`、`TestSignDeniedDoesNotCallTransit`、`TestClaimRejectsExpiredRevokedAndInactiveTask`；拒绝时 Vault/Transit/目标调用均为零 |
 | 2 | 获批后只能执行一次指定操作 | `TestClaimRejectsReplayAndConcurrentUse`、`TestPostgreSQLAuthorizationConcurrency`；32 路内存竞争和 24 路真实 PG 竞争均只有一个赢家 |
-| 3 | Prompt、上下文、工具参数、日志和错误不泄露凭证 | `TestSensitiveValueRedactsFormattingAndDestroys`、`TestHTTPProxyInjectsOnceAndRedactsReflectedSecret`、`TestAuditRejectsSensitiveOrArbitraryMetadata`、`TestPostgreSQLAuditChainAndRetention`、`TestProtocolListsToolsWithoutTokenOrCredentialBypass`、`TestOpenBaoErrorBodyIsNeverReturned` |
+| 3 | Prompt、上下文、工具参数、日志和错误不泄露凭证 | `TestSensitiveValueRedactsFormattingAndDestroys`、`TestHTTPProxyInjectsOnceAndRedactsReflectedSecret`、`TestAuditRejectsSensitiveOrArbitraryMetadata`、`TestPostgreSQLAuditChainAndRetention`、`TestAgentBearerAPILifecycleDoesNotEchoToken`、`TestAuthorizationRequestRejectsCredentialAndTargetBypassFields`、`TestOpenBaoErrorBodyIsNeverReturned` |
 | 4 | 操作完成后授权复用失败 | `TestClaimRejectsReplayAndConcurrentUse`、`TestPostgreSQLAuthorizationConcurrency`、`TestPostgreSQLEndToEndAuthorizationFlow`；重放拒绝同时写入无敏感数据的 actor 审计事件 |
 | 5 | 复制、并发、跨 Agent、跨任务复用均拒绝 | `TestClaimRejectsEveryContextMismatch`、`TestClaimRejectsReplayAndConcurrentUse`、`TestAgentRevokeRequiresExactAgentBinding`、`TestPostgreSQLAuthorizationConcurrency` |
 | 6 | 失败、取消、超时、Agent 退出后自动回收 | `TestHTTPProxyCancellationBecomesCancelledAndReclaimed`、`TestPostgreSQLBatchRollsBackAndRevokesLease`、`TestPostgreSQLLifecycleSweepAndRevoke`、`TestPostgreSQLTaskEndRevokesUnfinishedGrant`、`TestPostgreSQLCrashRecoveryRetriesWithoutRestoringGrant` |
@@ -25,4 +25,4 @@
 - 回收失败永久阻断并告警：`TestPostgreSQLCleanupFailureBecomesReclaimFailure`、`TestPostgreSQLCrashRecoveryRetriesWithoutRestoringGrant`。
 - Web Session/CSRF：`TestWebLoginUsesProtectedCookiesAndNoTokenBody`、`TestWebLogoutRequiresCSRFAndRevokesSession`。
 - Web 自助注册：`TestRegisterCreatesActiveNonAdminSessionWithoutPersistingSecrets`、`TestWebRegisterCreatesOrdinarySessionWithProtectedCookies`、`TestPostgreSQLRegistrationRequiresAdminAndCreatesActiveSession`、`TestPostgreSQLConcurrentRegistrationAllowsOneUsername`；账号与 Session 原子创建，固定为无特权普通用户，同名并发只有一个成功。
-- MCP Token 文件、无重试和后台心跳：`TestClientInjectsProtectedTokenWithoutRetryOrErrorLeak`、`TestBeginStartsAndEndStopsBackgroundHeartbeat`。
+- Agent 直连 Bearer API：`TestAgentBearerAPILifecycleDoesNotEchoToken`、`TestAgentAPIRequiresBearer`、`TestExecutionRouteAuthenticatesAndAcceptsOnlyIdentifiers`、`TestExecutionRouteRejectsMissingBearerBeforeExecutor`；服务端不回显 Agent Token，control 和 execution 都独立认证，执行 body 只接受 `request_id` 和 `task_id`。

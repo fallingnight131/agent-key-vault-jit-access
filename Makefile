@@ -40,5 +40,4 @@ build: web-build
 	go build -o bin/akv-control ./cmd/akv-control
 	go build -o bin/akv-execution-proxy ./cmd/akv-execution-proxy
 	go build -o bin/akv-worker ./cmd/akv-worker
-	go build -o bin/akv-mcp-server ./cmd/akv-mcp-server
 	go build -o bin/akv-bootstrap-admin ./cmd/akv-bootstrap-admin

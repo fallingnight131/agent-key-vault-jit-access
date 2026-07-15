@@ -13,7 +13,7 @@
 - 管理员目标/凭证 API 已支持录入、更新和停用；Vault 路径由服务端生成，秘密字节写入后清零且不返回路径。
 - Web 已按 owner/APPROVE_ALL/管理员权限列出申请，展示冻结操作与风险，支持原子决策、撤销、审计链和 incident 关闭；关闭告警不恢复 Grant。
 - 嵌入式 Web 工作台已覆盖登录、Agent Token 一次展示/变更、用户/目录管理、审批/撤销、审计和告警；业务数据仅用 textContent，无浏览器持久化。
-- AKV MCP Server 已提供 9 个 stdio 工具，Token 仅从 0600 文件注入，无重试/重定向；任务按 15 秒自动心跳，结束或进程退出停止。
+- Agent 运行时使用 Bearer Token 直连 control 与 execution HTTP API；根目录 `CLAUDE.md` 约束 Claude Code 维持 15 秒心跳、等待人工审批并只执行一次。
 - `make verify-all` 使用全新临时 PostgreSQL 验证迁移、并发、race 和不预置 Grant 的完整授权→执行→回收→审计闭环。
 - 管理员 Web 已覆盖 HTTP/PostgreSQL 目标、全部 MVP 凭证类型、全局审计和安全告警；证书可存储但申请阶段禁止执行。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
@@ -24,9 +24,9 @@
 已完成工作项：
 
 ```text
-ID / 目标：AKV-013.a / 重写本地教程的 MCP Server 启动章节
-结果：教程以本地 Claude Code 为例，说明 stdio 启动、local scope 配置、连接验证、Token 轮换、心跳与排错，并提供人工批准前后两段 Prompt 的 GET /healthz 完整演示
-验证：Claude Code 2.1.209 隔离配置实测 `mcp add/get`，Base64 期望值复核，`make verify` 和 `git diff --check` 通过
+ID / 目标：AKV-014.a / 移除 MCP 并改为 Agent 直接使用 Bearer Token 调用 AKV
+结果：删除 MCP 二进制、协议层、测试和构建入口；Agent 改为 Bearer HTTP 直连；CLAUDE.md 约束精确 Origin、Token 注入、15 秒心跳、人工审批和一次执行；教程、架构、验收证据与 Web 提示已同步
+验证：`make verify`、`make build`、全包 race、真实临时 PostgreSQL、双 Shell 无回显读取语法和 `git diff --check` 通过
 ```
 
 ## 队列
@@ -47,6 +47,7 @@ ID / 目标：AKV-013.a / 重写本地教程的 MCP Server 启动章节
 | `AKV-011.b` | `DONE` | 011.a | 前端源码与生成资源职责分离的项目结构 |
 | `AKV-012.a` | `DONE` | 011.b | MVP 普通用户账号密码自助注册 |
 | `AKV-013.a` | `DONE` | 012.a | 本地 Claude Code 连接 MCP 并经人工审批执行完整样例的教程 |
+| `AKV-014.a` | `DONE` | 013.a | 移除 MCP，Agent 持 Bearer Token 直连 HTTP API，并用 CLAUDE.md 引导 Claude Code |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -60,10 +61,10 @@ ID / 目标：AKV-013.a / 重写本地教程的 MCP Server 启动章节
 - 2026-07-15：`AKV-011.b` Vue 安全扫描与 6 项测试、Vite 构建、`make verify`、五个二进制构建和 `git diff --check` 通过。
 - 2026-07-15：`AKV-012.a` Vue 15 项测试、浏览器注册/退出、`make verify`、race、真实 PostgreSQL 注册并发/回滚、`make build` 和 `git diff --check` 通过。
 - 2026-07-15：`AKV-013.a` Claude Code 2.1.209 隔离配置的 MCP 命令实测、Base64 响应复核、`make verify` 和 `git diff --check` 通过。
+- 2026-07-15：`AKV-014.a` Vue 15 项测试、`make verify`、四个后端二进制构建、全包 race、真实临时 PostgreSQL、直连 API 与 Token 不回显测试、`git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-008.e2`：实现服务端路径的目标/凭证录入更新停用与无秘密 Web DTO｜下一步 `AKV-008.f`｜计划提交 `feat(control): manage credential catalog`
 - 2026-07-15｜`AKV-008.f`：实现权限隔离的申请查询、原子决策/撤销、审计链和不恢复 Grant 的 incident 处置｜下一步 `AKV-008.g`｜计划提交 `feat(control): expose approval workspace`
 - 2026-07-15｜`AKV-008.g`：实现无持久化/无不安全渲染的嵌入式人类审批工作台与 CSP｜下一步 `AKV-008.h`｜计划提交 `feat(web): add human control console`
 - 2026-07-15｜`AKV-008.h`：实现 9 工具 stdio MCP、0600 Token 注入、15 秒心跳和无重试受控执行｜下一步 `AKV-009.a`｜计划提交 `feat(mcp): expose controlled agent tools`
@@ -73,6 +74,7 @@ ID / 目标：AKV-013.a / 重写本地教程的 MCP Server 启动章节
 - 2026-07-15｜`AKV-011.b`：将 Vue 工程迁移至根目录并保留 Go 嵌入产物边界｜下一步无｜计划提交 `refactor(web): separate source from embedded assets`
 - 2026-07-15｜`AKV-012.a`：实现立即启用且固定无特权的账号密码自助注册、原子 Session 和可归因审计｜下一步无｜计划提交 `feat(web): add account registration`
 - 2026-07-15｜`AKV-013.a`：重写本地 Claude Code 的 MCP 连接、人工批准和一次性执行样例｜下一步无｜计划提交 `docs(local): explain Claude Code MCP demo`
+- 2026-07-15｜`AKV-014.a`：移除 MCP 并以 CLAUDE.md 引导 Claude Code 安全直连 Agent Bearer HTTP API｜下一步无｜计划提交 `refactor(agent): remove MCP integration`
 
 ## MVP 验收
 

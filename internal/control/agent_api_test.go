@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fallingnight/akv/internal/agent"
 	"github.com/fallingnight/akv/internal/authorization"
@@ -60,6 +61,51 @@ func (revocations *apiRevocations) RevokeAgent(context.Context, agent.Principal,
 	return lifecycle.RevokeResult{RevokedBeforeExecution: true}, nil
 }
 
+type directAPIAuthenticator struct{ tokens []string }
+
+func (authenticator *directAPIAuthenticator) Authenticate(_ context.Context, token string) (agent.Principal, error) {
+	authenticator.tokens = append(authenticator.tokens, token)
+	return agent.Principal{AgentID: "agent"}, nil
+}
+
+type directAPITasks struct {
+	heartbeats int
+	ended      bool
+	outcome    domain.TaskStatus
+}
+
+func (*directAPITasks) Begin(context.Context, string) (task.Record, error) {
+	return task.Record{ID: "task", Status: domain.TaskActive}, nil
+}
+func (tasks *directAPITasks) Heartbeat(_ context.Context, agentID, taskID string) error {
+	if agentID != "agent" || taskID != "task" {
+		return errors.New("unexpected heartbeat binding")
+	}
+	tasks.heartbeats++
+	return nil
+}
+func (tasks *directAPITasks) End(_ context.Context, agentID, taskID string, outcome domain.TaskStatus) ([]string, error) {
+	if agentID != "agent" || taskID != "task" {
+		return nil, errors.New("unexpected end binding")
+	}
+	tasks.ended, tasks.outcome = true, outcome
+	return nil, nil
+}
+
+type directAPIAuthorizations struct {
+	calls int
+	input authorization.SubmitInput
+}
+
+func (authorizations *directAPIAuthorizations) Submit(_ context.Context, principal agent.Principal, input authorization.SubmitInput) (authorization.Request, error) {
+	if principal.AgentID != "agent" {
+		return authorization.Request{}, errors.New("unexpected principal")
+	}
+	authorizations.calls++
+	authorizations.input = input
+	return authorization.Request{ID: "request", Status: domain.RequestPendingApproval, ApprovalDeadline: time.Now().Add(time.Minute)}, nil
+}
+
 func TestAgentTargetsDTOExcludesInternalCredentialAndConnection(t *testing.T) {
 	server := testAgentServer(&apiAuthorizations{})
 	request := httptest.NewRequest(http.MethodGet, "/v1/agent/targets", nil)
@@ -104,6 +150,73 @@ func TestAgentCanRevokeOwnedAuthorizationWithoutTokenInPayload(t *testing.T) {
 	server.Handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || revocations.calls != 1 {
 		t.Fatalf("status=%d calls=%d body=%q", response.Code, revocations.calls, response.Body.String())
+	}
+}
+
+func TestAgentBearerAPILifecycleDoesNotEchoToken(t *testing.T) {
+	const token = "direct-agent-token-must-not-leak"
+	authenticator := &directAPIAuthenticator{}
+	tasks := &directAPITasks{}
+	authorizations := &directAPIAuthorizations{}
+	var logs bytes.Buffer
+	runtime := &AgentRuntime{
+		Authenticator:  authenticator,
+		Targets:        apiTargets{},
+		Tasks:          tasks,
+		Authorizations: authorizations,
+		Statuses:       apiStatuses{},
+	}
+	server := NewServer(Config{ListenAddress: "127.0.0.1:0"}, slog.New(slog.NewJSONHandler(&logs, nil)), runtime, nil)
+	var responses strings.Builder
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+token)
+		if body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		server.Handler.ServeHTTP(response, request)
+		responses.WriteString(response.Body.String())
+		return response
+	}
+
+	if response := call(http.MethodGet, "/v1/agent/targets", ""); response.Code != http.StatusOK {
+		t.Fatalf("targets status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response := call(http.MethodPost, "/v1/agent/tasks", `{}`); response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"heartbeat_interval_seconds":15`) {
+		t.Fatalf("begin status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response := call(http.MethodPost, "/v1/agent/tasks/task/heartbeat", `{}`); response.Code != http.StatusNoContent {
+		t.Fatalf("heartbeat status=%d body=%q", response.Code, response.Body.String())
+	}
+	input := `{"task_id":"task","target_id":"target","operation":{"kind":"HTTP","http":{"method":"POST","path":"/tickets"}},"reason":"direct API fixture"}`
+	if response := call(http.MethodPost, "/v1/agent/authorizations", input); response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"request_id":"request"`) {
+		t.Fatalf("authorization status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response := call(http.MethodGet, "/v1/agent/authorizations/request", ""); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"request_status":"PENDING_APPROVAL"`) {
+		t.Fatalf("status status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response := call(http.MethodPost, "/v1/agent/tasks/task/end", `{"outcome":"COMPLETED"}`); response.Code != http.StatusNoContent {
+		t.Fatalf("end status=%d body=%q", response.Code, response.Body.String())
+	}
+
+	if len(authenticator.tokens) != 6 {
+		t.Fatalf("authentication calls=%d", len(authenticator.tokens))
+	}
+	for _, received := range authenticator.tokens {
+		if received != token {
+			t.Fatalf("unexpected token received")
+		}
+	}
+	if tasks.heartbeats != 1 || !tasks.ended || tasks.outcome != domain.TaskCompleted {
+		t.Fatalf("task lifecycle heartbeats=%d ended=%t outcome=%s", tasks.heartbeats, tasks.ended, tasks.outcome)
+	}
+	if authorizations.calls != 1 || authorizations.input.TaskID != "task" || authorizations.input.TargetID != "target" {
+		t.Fatalf("authorization calls=%d input=%+v", authorizations.calls, authorizations.input)
+	}
+	if exposed := responses.String() + logs.String(); strings.Contains(exposed, token) {
+		t.Fatal("Agent Token appeared in API response or request log")
 	}
 }
 
