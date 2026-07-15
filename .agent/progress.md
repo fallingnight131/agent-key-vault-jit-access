@@ -1,31 +1,31 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-001`｜下一项：`AKV-001.b`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-002`｜下一项：`AKV-002.a`
 
 ## 恢复点
 
-- Git 和安全 `.gitignore` 已建立，需求、架构及 Agent 文档已纳入首次基线提交。
-- 仓库仍无技术栈、实现和测试入口；下一轮 `AKV-001.b` 选择最小连贯技术栈，建立工程骨架及 `make verify`。
-- 技术栈应优先满足类型/并发安全、PostgreSQL/OpenBao 集成、MCP 接入、可测试性和 MVP 速度；若选择昂贵或难替换的基础设施，先询问用户。
+- Go 1.26 工程、控制服务入口、配置校验、健康检查及 `make verify` 已建立。
+- 下一轮 `AKV-002.a` 从架构数据模型提炼迁移，先实现数据库 schema 与可重复的迁移测试。
+- 当前实现无第三方依赖；引入 PostgreSQL 驱动前先以 SQL 迁移和持久层接口固定领域约束。
 
 ## 当前工作项
 
 下一最小切片：
 
 ```text
-ID / 目标：AKV-001.b / 建立可运行工程骨架
-验收条件：记录技术栈决策；提供最小服务入口和测试；make verify 通过
-修改范围：工程配置、最小源码、测试、Makefile、memory/progress
-验证命令：由所选技术栈确定，最终统一为 make verify
-风险 / 下一步：避免一次引入多个重叠框架；完成后进入 AKV-002
+ID / 目标：AKV-002.a / 建立核心数据库 schema 与迁移机制
+验收条件：覆盖架构核心实体和状态约束；迁移可重复执行测试；make verify 通过
+修改范围：数据库迁移、迁移执行器与测试、memory/progress
+验证命令：make verify
+风险 / 下一步：并发安全约束必须落在 PostgreSQL；不得把凭证明文列加入业务表
 ```
 
 ## 队列
 
 | ID | 状态 | 依赖 | 交付结果 |
 | --- | --- | --- | --- |
-| `AKV-001` | `IN_PROGRESS` | - | Git 与 `.gitignore` 已完成；待工程和统一验证入口 |
-| `AKV-002` | `BACKLOG` | 001 | 领域状态、数据库 schema/migration |
+| `AKV-001` | `DONE` | - | Git、安全忽略规则、Go 工程、控制服务入口及统一验证 |
+| `AKV-002` | `IN_PROGRESS` | 001 | 领域状态、数据库 schema/migration |
 | `AKV-003` | `BACKLOG` | 002 | 人类身份、Agent Token、任务与心跳 |
 | `AKV-004` | `BACKLOG` | 002 | 目标/凭证目录与 OpenBao 集成 |
 | `AKV-005` | `BACKLOG` | 003,004 | 申请、审批竞争、一次性 Grant 原子占用 |
@@ -38,18 +38,18 @@ ID / 目标：AKV-001.b / 建立可运行工程骨架
 
 ## 待决/阻塞
 
-- 技术栈未确认：由 `AKV-001` 选择并写入 memory；只有重大且难逆选择才阻塞询问。
 - 部署环境未确认：先提供本地、可重复、无真实凭证的运行方式。
 - 当前无真实阻塞。
 
 ## 最近验证
 
-- 2026-07-15：文档围栏和常见凭证模式检查通过；`.gitignore` 命中本地凭证、运行数据及构建产物；尚无代码测试。
+- 2026-07-15：`make verify`（格式、`go vet`、全部 Go 测试）及 `git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
 - 2026-07-15｜文档基线：建立并精简自主循环、记忆和进度规则｜下一步 `AKV-001`｜计划提交 `docs(agent): establish autonomous workflow`
 - 2026-07-15｜`AKV-001.a`：建立 Git 与安全 `.gitignore`，提交项目文档基线｜下一步 `AKV-001.b`｜提交 `chore(repo): establish AKV MVP baseline`
+- 2026-07-15｜`AKV-001.b`：建立 Go 控制服务骨架、健康检查和统一验证入口｜下一步 `AKV-002.a`｜计划提交 `feat(control): bootstrap control service`
 
 ## MVP 验收
 
