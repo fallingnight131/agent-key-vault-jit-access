@@ -1,0 +1,62 @@
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+.agent-token
+agent-token*
+.vault-token
+.openbao-token
+secrets/
+.local/
+
+# Runtime data
+*.log
+*.pid
+tmp/
+run/
+openbao-data/
+postgres-data/
+
+# Build and test output
+bin/
+build/
+dist/
+coverage/
+coverage.out
+*.test
+
+# Node.js
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+
+# Rust
+target/
+
+# Terraform local state
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
