@@ -64,7 +64,7 @@ type dynamicVault struct {
 func (*dynamicVault) ReadKV(context.Context, string, *int) (map[string]*vault.SensitiveValue, error) {
 	return nil, errors.New("static fallback forbidden")
 }
-func (*dynamicVault) Sign(context.Context, string, []byte) ([]byte, error) { return nil, nil }
+func (*dynamicVault) Sign(context.Context, string, string, []byte) ([]byte, error) { return nil, nil }
 func (client *dynamicVault) IssueDatabase(context.Context, string, time.Duration) (vault.DynamicCredential, error) {
 	client.issueCalls++
 	if client.issueError != nil {

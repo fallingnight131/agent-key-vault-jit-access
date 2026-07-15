@@ -35,7 +35,7 @@ type DatabaseRole struct {
 // ExecutionClient is the capability used only by the execution proxy.
 type ExecutionClient interface {
 	ReadKV(context.Context, string, *int) (map[string]*SensitiveValue, error)
-	Sign(context.Context, string, []byte) ([]byte, error)
+	Sign(context.Context, string, string, []byte) ([]byte, error)
 	IssueDatabase(context.Context, string, time.Duration) (DynamicCredential, error)
 	RevokeLease(context.Context, string) error
 }

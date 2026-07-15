@@ -41,7 +41,7 @@ func (client *fakeVault) ReadKV(context.Context, string, *int) (map[string]*vaul
 	client.readCalls++
 	return client.values, nil
 }
-func (*fakeVault) Sign(context.Context, string, []byte) ([]byte, error) {
+func (*fakeVault) Sign(context.Context, string, string, []byte) ([]byte, error) {
 	return nil, errors.New("unexpected sign")
 }
 func (*fakeVault) IssueDatabase(context.Context, string, time.Duration) (vault.DynamicCredential, error) {

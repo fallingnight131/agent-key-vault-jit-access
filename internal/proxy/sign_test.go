@@ -16,9 +16,9 @@ type signVault struct{ calls int }
 func (*signVault) ReadKV(context.Context, string, *int) (map[string]*vault.SensitiveValue, error) {
 	return nil, errors.New("unexpected read")
 }
-func (client *signVault) Sign(_ context.Context, path string, digest []byte) ([]byte, error) {
+func (client *signVault) Sign(_ context.Context, path, algorithm string, digest []byte) ([]byte, error) {
 	client.calls++
-	if path != "transit/keys/signing" || string(digest) != "fixture-digest" {
+	if path != "transit/keys/signing" || algorithm != "sha2-256" || string(digest) != "fixture-digest" {
 		return nil, errors.New("unexpected sign input")
 	}
 	return []byte("vault-signature"), nil

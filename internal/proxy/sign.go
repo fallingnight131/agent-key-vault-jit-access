@@ -40,7 +40,7 @@ func (proxy *SignProxy) Execute(ctx context.Context, requestID, authenticatedAge
 	if err != nil {
 		return nil, &PublicError{Code: "EXECUTION_STATE_FAILED"}
 	}
-	signature, err := proxy.vault.Sign(ctx, plan.Credential.VaultPath, plan.Operation.Sign.Digest)
+	signature, err := proxy.vault.Sign(ctx, plan.Credential.VaultPath, plan.Operation.Sign.DigestAlgorithm, plan.Operation.Sign.Digest)
 	if err != nil {
 		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "SIGN_FAILED")
 		return nil, &PublicError{Code: "SIGN_FAILED"}

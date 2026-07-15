@@ -22,7 +22,7 @@ func (client *fakeExecutionClient) ReadKV(context.Context, string, *int) (map[st
 	return map[string]*SensitiveValue{"token": NewSensitiveValue([]byte("fixture-secret"))}, nil
 }
 
-func (client *fakeExecutionClient) Sign(context.Context, string, []byte) ([]byte, error) {
+func (client *fakeExecutionClient) Sign(context.Context, string, string, []byte) ([]byte, error) {
 	return []byte("fixture-signature"), nil
 }
 
