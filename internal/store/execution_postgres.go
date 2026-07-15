@@ -129,6 +129,89 @@ WHERE e.id = $1 AND g.id = e.grant_id AND g.status = 'EXECUTING'`, executionID, 
 	return nil
 }
 
+func (repository *PostgreSQLExecutionRepository) StartReclaim(ctx context.Context, executionID string, startedAt time.Time) (string, error) {
+	id, err := repository.newID()
+	if err != nil {
+		return "", fmt.Errorf("generate reclaim ID: %w", err)
+	}
+	transaction, err := repository.database.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin reclaim: %w", err)
+	}
+	defer func() { _ = transaction.Rollback() }()
+	result, err := transaction.ExecContext(ctx, `
+UPDATE operation_grants g SET status='RECLAIMING'
+FROM executions e
+WHERE e.id=$1 AND g.id=e.grant_id
+  AND e.status IN ('SUCCEEDED','FAILED','CANCELLED','TIMED_OUT')
+  AND g.status=e.status`, executionID)
+	if err != nil {
+		return "", fmt.Errorf("start grant reclaim: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows != 1 {
+		return "", errors.New("execution is not ready for reclaim")
+	}
+	_, err = transaction.ExecContext(ctx, `
+INSERT INTO reclaims (id, execution_id, status, started_at, attempt)
+SELECT $1,$2,'RECLAIMING',$3,COALESCE(MAX(attempt),0)+1 FROM reclaims WHERE execution_id=$2`, id, executionID, startedAt)
+	if err != nil {
+		return "", fmt.Errorf("insert reclaim: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return "", fmt.Errorf("commit reclaim start: %w", err)
+	}
+	return id, nil
+}
+
+func (repository *PostgreSQLExecutionRepository) FinishReclaim(ctx context.Context, reclaimID string, success bool, completedAt time.Time, errorCode string) error {
+	status := domain.ReclaimFailed
+	grantStatus := domain.GrantReclaimFailed
+	if success {
+		status, grantStatus = domain.Reclaimed, domain.GrantReclaimed
+	}
+	transaction, err := repository.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin reclaim finish: %w", err)
+	}
+	defer func() { _ = transaction.Rollback() }()
+	result, err := transaction.ExecContext(ctx, `
+UPDATE reclaims SET status=$2,completed_at=$3,error_code=NULLIF($4,'')
+WHERE id=$1 AND status='RECLAIMING'`, reclaimID, status, completedAt, errorCode)
+	if err != nil {
+		return fmt.Errorf("finish reclaim: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows != 1 {
+		return errors.New("reclaim is not active")
+	}
+	result, err = transaction.ExecContext(ctx, `
+UPDATE operation_grants g SET status=$2
+FROM reclaims r JOIN executions e ON e.id=r.execution_id
+WHERE r.id=$1 AND g.id=e.grant_id AND g.status='RECLAIMING'`, reclaimID, grantStatus)
+	if err != nil {
+		return fmt.Errorf("finish grant reclaim: %w", err)
+	}
+	rows, _ = result.RowsAffected()
+	if rows != 1 {
+		return errors.New("grant is not reclaiming")
+	}
+	if !success {
+		incidentID, err := repository.newID()
+		if err != nil {
+			return fmt.Errorf("generate incident ID: %w", err)
+		}
+		_, err = transaction.ExecContext(ctx, `INSERT INTO security_incidents (id,reclaim_id,status,error_code,created_at) VALUES ($1,$2,'OPEN',$3,$4)`, incidentID, reclaimID, errorCode, completedAt)
+		if err != nil {
+			return fmt.Errorf("create reclaim incident: %w", err)
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit reclaim finish: %w", err)
+	}
+	return nil
+}
+
 func randomExecutionID() (string, error) {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {

@@ -134,6 +134,21 @@ func TestPostgreSQLAuthorizationConcurrency(t *testing.T) {
 	if executionStatus != "SUCCEEDED" || grantStatus != "SUCCEEDED" {
 		t.Fatalf("execution status=%s grant status=%s", executionStatus, grantStatus)
 	}
+	reclaimID, err := executionRepository.StartReclaim(context.Background(), executionID, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("StartReclaim() error = %v", err)
+	}
+	if err := executionRepository.FinishReclaim(context.Background(), reclaimID, false, time.Now().UTC(), "FIXTURE_CLEANUP_FAILED"); err != nil {
+		t.Fatalf("FinishReclaim() error = %v", err)
+	}
+	var reclaimStatus string
+	var incidents int
+	if err := database.QueryRow(`SELECT r.status,g.status,(SELECT count(*) FROM security_incidents i WHERE i.reclaim_id=r.id) FROM reclaims r JOIN executions e ON e.id=r.execution_id JOIN operation_grants g ON g.id=e.grant_id WHERE r.id=$1`, reclaimID).Scan(&reclaimStatus, &grantStatus, &incidents); err != nil {
+		t.Fatalf("read reclaim lifecycle: %v", err)
+	}
+	if reclaimStatus != "RECLAIM_FAILED" || grantStatus != "RECLAIM_FAILED" || incidents != 1 {
+		t.Fatalf("reclaim=%s grant=%s incidents=%d", reclaimStatus, grantStatus, incidents)
+	}
 	if _, err := guard.Claim(context.Background(), claim); !errors.Is(err, authorization.ErrClaimDenied) {
 		t.Fatalf("replay Claim() error = %v", err)
 	}

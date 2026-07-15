@@ -57,6 +57,7 @@ func (factory *fakeSQLFactory) Connect(context.Context, catalog.ConnectionConfig
 
 type dynamicVault struct {
 	issueError  error
+	revokeError error
 	issueCalls  int
 	revokeCalls int
 }
@@ -76,7 +77,23 @@ func (client *dynamicVault) IssueDatabase(context.Context, string, time.Duration
 }
 func (client *dynamicVault) RevokeLease(context.Context, string) error {
 	client.revokeCalls++
-	return nil
+	return client.revokeError
+}
+
+func TestPostgreSQLCleanupFailureBecomesReclaimFailure(t *testing.T) {
+	vaultClient := &dynamicVault{revokeError: errors.New("fixture revoke failure")}
+	transaction := &fakeSQLTransaction{}
+	database := &fakeSQLDatabase{transaction: transaction}
+	lifecycle := &fakeLifecycle{}
+	proxy := NewPostgreSQLProxy(&fakePlans{postgresPlan()}, &fakeGuard{}, vaultClient, lifecycle, &fakeSQLFactory{database: database})
+	_, err := proxy.Execute(context.Background(), "request", "agent", "task")
+	var publicError *PublicError
+	if !errors.As(err, &publicError) || publicError.Code != "RECLAIM_FAILED" {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(lifecycle.reclaims) != 1 || lifecycle.reclaims[0] {
+		t.Fatalf("reclaims = %v", lifecycle.reclaims)
+	}
 }
 
 func TestPostgreSQLDynamicFailureHasNoConnectionOrFallback(t *testing.T) {

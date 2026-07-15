@@ -52,6 +52,7 @@ func (*fakeVault) RevokeLease(context.Context, string) error { return nil }
 type fakeLifecycle struct {
 	starts   int
 	finishes []domain.ExecutionStatus
+	reclaims []bool
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -66,6 +67,13 @@ func (lifecycle *fakeLifecycle) Start(context.Context, authorization.Grant, time
 }
 func (lifecycle *fakeLifecycle) Finish(_ context.Context, _ string, status domain.ExecutionStatus, _ time.Time, _ string) error {
 	lifecycle.finishes = append(lifecycle.finishes, status)
+	return nil
+}
+func (*fakeLifecycle) StartReclaim(context.Context, string, time.Time) (string, error) {
+	return "reclaim", nil
+}
+func (lifecycle *fakeLifecycle) FinishReclaim(_ context.Context, _ string, success bool, _ time.Time, _ string) error {
+	lifecycle.reclaims = append(lifecycle.reclaims, success)
 	return nil
 }
 

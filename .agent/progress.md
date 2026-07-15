@@ -1,23 +1,23 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-007`｜下一项：`AKV-007.a`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-007`｜下一项：`AKV-007.b`
 
 ## 恢复点
 
-- 独立 execution-proxy 已完整装配 Agent 认证、冻结计划、原子占用、HTTP/PG/Sign、OpenBao 和生命周期持久化。
-- 下一轮 `AKV-007.a` 实现所有终态强制进入回收、回收失败阻断与 5 秒内异常/告警记录。
-- 回收状态必须持久化；任何失败不得恢复 Grant，静态源凭证不得删除。
+- 所有已占用执行终态已强制进入 5 秒回收；失败持久阻断并创建 OPEN incident，代理不再忽略 Finish/Close 错误。
+- 下一轮 `AKV-007.b` 实现审批/Grant 超时、主动撤销、任务结束/失联时撤销未消费 Grant，并输出待取消执行。
+- 主动撤销未发出操作必须完全阻止；执行中只做尽力取消且不承诺回滚业务结果。
 
 ## 当前工作项
 
 下一最小切片：
 
 ```text
-ID / 目标：AKV-007.a / 实现回收状态机与异常阻断
-验收条件：成功/失败/取消/超时均 5 秒内开始回收；动态 Lease/会话撤销；失败进入 RECLAIM_FAILED 并创建 OPEN incident；静态源凭证保留；make verify 通过
-修改范围：回收协调器、PostgreSQL 仓储、执行代理终态集成、测试、memory/progress
+ID / 目标：AKV-007.b / 实现撤销与超时 Worker
+验收条件：审批 30 分钟、Grant 期限、任务 45 秒原子过期；主动撤销权限；未消费零外部调用；执行中返回取消任务；make verify/真实 PG 通过
+修改范围：生命周期服务/仓储、Worker 轮询与命令入口、并发测试、memory/progress
 验证命令：make verify
-风险 / 下一步：当前代理忽略 Finish/Close 错误，需重构为回收结果决定最终状态并持久化
+风险 / 下一步：撤销与占用竞争必须由单个条件更新决定；不能读后写
 ```
 
 ## 队列
@@ -30,7 +30,7 @@ ID / 目标：AKV-007.a / 实现回收状态机与异常阻断
 | `AKV-004` | `DONE` | 002 | 安全目标/凭证目录与 OpenBao 权限隔离 |
 | `AKV-005` | `DONE` | 003,004 | 不可变申请、审批竞争、绑定 Grant 及 PostgreSQL 原子占用 |
 | `AKV-006` | `DONE` | 005 | 独立受控代理、HTTP/PG/Transit、动态凭证与真实适配器 |
-| `AKV-007` | `IN_PROGRESS` | 005,006 | 超时、撤销、回收、告警、审计及 180 天清理 |
+| `AKV-007` | `IN_PROGRESS` | 005,006 | 回收/异常阻断已完成；待撤销、超时、审计清理 |
 | `AKV-008` | `BACKLOG` | 003-007 | MCP 工具和 Web 控制面 |
 | `AKV-009` | `BACKLOG` | 008 | 需求第 5 节全部端到端安全验收与演示 |
 
@@ -43,11 +43,10 @@ ID / 目标：AKV-007.a / 实现回收状态机与异常阻断
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、代理/仓储 race、`git diff --check` 和 `make test-migrations-postgres` 通过；真实 Agent Token 轮换认证及受保护路由输入边界已验证。
+- 2026-07-15：`make verify`、代理/仓储 race、`git diff --check` 和 `make test-migrations-postgres` 通过；真实 PG 验证 Reclaim/Grant 失败态及单 OPEN incident。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-005.a`：实现活动任务校验、服务端凭证、强类型操作和不可变上下文哈希｜下一步 `AKV-005.b`｜计划提交 `feat(authz): create immutable requests`
 - 2026-07-15｜`AKV-005.b`：实现审批权限、首个决定竞争及批准同事务 Grant｜下一步 `AKV-005.c`｜计划提交 `feat(authz): enforce approval competition`
 - 2026-07-15｜`AKV-005.c`：实现完整上下文单调用占用契约及并发/重放安全测试｜下一步 `AKV-005.d`｜计划提交 `feat(authz): guard one-time grant claims`
 - 2026-07-15｜`AKV-005.d`：实现 PostgreSQL 审批事务和单 SQL 占用并通过真实并发测试｜下一步 `AKV-006.a`｜计划提交 `feat(store): persist atomic authorization`
@@ -57,6 +56,7 @@ ID / 目标：AKV-007.a / 实现回收状态机与异常阻断
 - 2026-07-15｜`AKV-006.d`：持久化冻结计划与 Execution 终态并建立独立执行进程｜下一步 `AKV-006.e`｜计划提交 `feat(store): persist execution lifecycle`
 - 2026-07-15｜`AKV-006.e`：实现 0600 Token OpenBao 执行客户端与结构化 pgx 目标工厂｜下一步 `AKV-006.f`｜计划提交 `feat(proxy): add real execution adapters`
 - 2026-07-15｜`AKV-006.f`：装配 PostgreSQL Agent 认证、0600 配置和三类受保护执行路由｜下一步 `AKV-007.a`｜计划提交 `feat(proxy): assemble authenticated runtime`
+- 2026-07-15｜`AKV-007.a`：统一 5 秒回收并将失败永久阻断为 incident｜下一步 `AKV-007.b`｜计划提交 `feat(lifecycle): enforce terminal reclaim`
 
 ## MVP 验收
 

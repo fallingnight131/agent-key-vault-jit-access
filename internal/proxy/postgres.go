@@ -80,7 +80,9 @@ func (proxy *PostgreSQLProxy) Execute(ctx context.Context, requestID, authentica
 	if plan.Credential.Type == catalog.CredentialPostgreSQLDynamic {
 		referenceKind = vault.ReferencePostgreSQLDynamic
 	} else if plan.Target.ConnectionConfig.RequireDynamic {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "DYNAMIC_CREDENTIAL_REQUIRED")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "DYNAMIC_CREDENTIAL_REQUIRED", nil, proxy.now); finalError != nil {
+			return PostgreSQLResult{}, finalError
+		}
 		return PostgreSQLResult{}, &PublicError{Code: "DYNAMIC_CREDENTIAL_REQUIRED"}
 	}
 	handle, err := vault.Acquire(ctx, proxy.vault, vault.Reference{
@@ -88,71 +90,98 @@ func (proxy *PostgreSQLProxy) Execute(ctx context.Context, requestID, authentica
 		TTL: credentialTTL,
 	})
 	if err != nil {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "VAULT_UNAVAILABLE")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "VAULT_UNAVAILABLE", nil, proxy.now); finalError != nil {
+			return PostgreSQLResult{}, finalError
+		}
 		return PostgreSQLResult{}, &PublicError{Code: "VAULT_UNAVAILABLE"}
 	}
-	defer func() { _ = handle.Close(context.Background()) }()
+	handleCleanup := func(cleanupContext context.Context) error { return handle.Close(cleanupContext) }
 	database, err := proxy.factory.Connect(ctx, plan.Target.ConnectionConfig, handle.Values)
 	if err != nil {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "TARGET_UNAVAILABLE")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "TARGET_UNAVAILABLE", handleCleanup, proxy.now); finalError != nil {
+			return PostgreSQLResult{}, finalError
+		}
 		return PostgreSQLResult{}, &PublicError{Code: "TARGET_UNAVAILABLE"}
 	}
-	defer database.Close()
+	cleanup := func(cleanupContext context.Context) error {
+		return errors.Join(database.Close(), handle.Close(cleanupContext))
+	}
 
 	if plan.Operation.Kind == authorization.OperationPostgreSQLStatement {
-		return proxy.executeStatement(ctx, executionID, database, plan.Operation.PostgreSQL.Statements[0])
+		return proxy.executeStatement(ctx, executionID, database, plan.Operation.PostgreSQL.Statements[0], cleanup)
 	}
-	return proxy.executeBatch(ctx, executionID, database, plan.Operation.PostgreSQL.Statements)
+	return proxy.executeBatch(ctx, executionID, database, plan.Operation.PostgreSQL.Statements, cleanup)
 }
 
-func (proxy *PostgreSQLProxy) executeStatement(ctx context.Context, executionID string, database SQLDatabase, statement authorization.SQLStatement) (PostgreSQLResult, error) {
+func (proxy *PostgreSQLProxy) executeStatement(ctx context.Context, executionID string, database SQLDatabase, statement authorization.SQLStatement, cleanup Cleanup) (PostgreSQLResult, error) {
 	timeoutContext, cancel := context.WithTimeout(ctx, PostgreSQLStatementTimeout)
 	defer cancel()
 	result, err := database.ExecContext(timeoutContext, statement.SQL, statement.Arguments...)
 	if err != nil {
 		status, code := databaseFailure(timeoutContext)
-		_ = proxy.lifecycle.Finish(ctx, executionID, status, proxy.now(), code)
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, status, code, cleanup, proxy.now); finalError != nil {
+			return PostgreSQLResult{}, finalError
+		}
 		return PostgreSQLResult{}, &PublicError{Code: code}
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "TARGET_RESULT_INVALID")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "TARGET_RESULT_INVALID", cleanup, proxy.now); finalError != nil {
+			return PostgreSQLResult{}, finalError
+		}
 		return PostgreSQLResult{}, &PublicError{Code: "TARGET_RESULT_INVALID"}
 	}
-	_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionSucceeded, proxy.now(), "")
+	if err := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionSucceeded, "", cleanup, proxy.now); err != nil {
+		return PostgreSQLResult{}, err
+	}
 	return PostgreSQLResult{RowsAffected: []int64{rows}}, nil
 }
 
-func (proxy *PostgreSQLProxy) executeBatch(ctx context.Context, executionID string, database SQLDatabase, statements []authorization.SQLStatement) (PostgreSQLResult, error) {
+func (proxy *PostgreSQLProxy) executeBatch(ctx context.Context, executionID string, database SQLDatabase, statements []authorization.SQLStatement, cleanup Cleanup) (PostgreSQLResult, error) {
 	timeoutContext, cancel := context.WithTimeout(ctx, PostgreSQLBatchTimeout)
 	defer cancel()
 	transaction, err := database.BeginTx(timeoutContext)
 	if err != nil {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "TARGET_UNAVAILABLE")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "TARGET_UNAVAILABLE", cleanup, proxy.now); finalError != nil {
+			return PostgreSQLResult{}, finalError
+		}
 		return PostgreSQLResult{}, &PublicError{Code: "TARGET_UNAVAILABLE"}
 	}
-	defer transaction.Rollback()
 	rows := make([]int64, 0, len(statements))
 	for _, statement := range statements {
 		result, err := transaction.ExecContext(timeoutContext, statement.SQL, statement.Arguments...)
 		if err != nil {
 			status, code := databaseFailure(timeoutContext)
-			_ = proxy.lifecycle.Finish(ctx, executionID, status, proxy.now(), code)
+			rollbackError := transaction.Rollback()
+			if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, status, code, joinCleanup(rollbackError, cleanup), proxy.now); finalError != nil {
+				return PostgreSQLResult{}, finalError
+			}
 			return PostgreSQLResult{}, &PublicError{Code: code}
 		}
 		count, err := result.RowsAffected()
 		if err != nil {
-			_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "TARGET_RESULT_INVALID")
+			rollbackError := transaction.Rollback()
+			if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "TARGET_RESULT_INVALID", joinCleanup(rollbackError, cleanup), proxy.now); finalError != nil {
+				return PostgreSQLResult{}, finalError
+			}
 			return PostgreSQLResult{}, &PublicError{Code: "TARGET_RESULT_INVALID"}
 		}
 		rows = append(rows, count)
 	}
 	if err := transaction.Commit(); err != nil {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "TARGET_COMMIT_FAILED")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "TARGET_COMMIT_FAILED", cleanup, proxy.now); finalError != nil {
+			return PostgreSQLResult{}, finalError
+		}
 		return PostgreSQLResult{}, &PublicError{Code: "TARGET_COMMIT_FAILED"}
 	}
-	_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionSucceeded, proxy.now(), "")
+	if err := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionSucceeded, "", cleanup, proxy.now); err != nil {
+		return PostgreSQLResult{}, err
+	}
 	return PostgreSQLResult{RowsAffected: rows}, nil
+}
+
+func joinCleanup(prior error, cleanup Cleanup) Cleanup {
+	return func(ctx context.Context) error { return errors.Join(prior, cleanup(ctx)) }
 }
 
 func databaseFailure(ctx context.Context) (domain.ExecutionStatus, string) {

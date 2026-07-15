@@ -46,6 +46,7 @@
 - 2026-07-15：执行计划由 PostgreSQL 联结冻结申请、Grant、目标和凭证元数据加载；Execution 与 Grant 终态在同一事务同步；独立 `akv-execution-proxy` 默认监听 `127.0.0.1:8081`。
 - 2026-07-15：OpenBao 执行客户端只接受 group/other 不可访问的 Token 文件，后端错误体不传播；pgx 目标工厂以结构化配置设置短生命周期用户名/密码，不把秘密拼入 DSN。
 - 2026-07-15：execution-proxy 路由只接受 `request_id`/`task_id`，先用 PostgreSQL 哈希 Token 仓储认证 Agent；数据库 DSN 与 OpenBao Token 均从 group/other 不可访问文件加载，进程装配不包含控制面 Vault 写能力。
+- 2026-07-15：已占用执行的所有结果通过统一 5 秒 finalizer 进入 `RECLAIMING`；清理失败原子落 `RECLAIM_FAILED` 并创建 OPEN incident，Grant 永不恢复，静态材料只清内存不删除 Vault 源值。
 
 ## Agent 维护区
 

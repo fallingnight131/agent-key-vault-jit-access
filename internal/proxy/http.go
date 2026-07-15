@@ -51,6 +51,8 @@ type Guard interface {
 type Lifecycle interface {
 	Start(context.Context, authorization.Grant, time.Time) (string, error)
 	Finish(context.Context, string, domain.ExecutionStatus, time.Time, string) error
+	StartReclaim(context.Context, string, time.Time) (string, error)
+	FinishReclaim(context.Context, string, bool, time.Time, string) error
 }
 
 type HTTPResult struct {
@@ -103,16 +105,22 @@ func (proxy *HTTPProxy) Execute(ctx context.Context, requestID, authenticatedAge
 		Kind: vault.ReferenceStaticKV, Path: plan.Credential.VaultPath, Version: plan.Credential.VaultVersion,
 	})
 	if err != nil {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "VAULT_UNAVAILABLE")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "VAULT_UNAVAILABLE", nil, proxy.now); finalError != nil {
+			return HTTPResult{}, finalError
+		}
 		return HTTPResult{}, &PublicError{Code: "VAULT_UNAVAILABLE"}
 	}
 	redactor := NewRedactor(handle.Values)
-	defer redactor.Destroy()
-	defer func() { _ = handle.Close(context.Background()) }()
+	cleanup := func(cleanupContext context.Context) error {
+		redactor.Destroy()
+		return handle.Close(cleanupContext)
+	}
 
 	request, err := buildHTTPRequest(ctx, plan, handle.Values)
 	if err != nil {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "INVALID_EXECUTION_PLAN")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "INVALID_EXECUTION_PLAN", cleanup, proxy.now); finalError != nil {
+			return HTTPResult{}, finalError
+		}
 		return HTTPResult{}, &PublicError{Code: "INVALID_EXECUTION_PLAN"}
 	}
 	timeoutContext, cancel := context.WithTimeout(request.Context(), HTTPTimeout)
@@ -126,17 +134,23 @@ func (proxy *HTTPProxy) Execute(ctx context.Context, requestID, authenticatedAge
 		if errors.Is(timeoutContext.Err(), context.DeadlineExceeded) {
 			status, code = domain.ExecutionTimedOut, "TARGET_TIMEOUT"
 		}
-		_ = proxy.lifecycle.Finish(ctx, executionID, status, proxy.now(), code)
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, status, code, cleanup, proxy.now); finalError != nil {
+			return HTTPResult{}, finalError
+		}
 		return HTTPResult{}, &PublicError{Code: code}
 	}
 	defer response.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(response.Body, maxResponseBody+1))
 	if readErr != nil || len(body) > maxResponseBody {
-		_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionFailed, proxy.now(), "RESPONSE_INVALID")
+		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "RESPONSE_INVALID", cleanup, proxy.now); finalError != nil {
+			return HTTPResult{}, finalError
+		}
 		return HTTPResult{}, &PublicError{Code: "RESPONSE_INVALID"}
 	}
 	result := HTTPResult{StatusCode: response.StatusCode, Headers: redactHeaders(redactor, response.Header), Body: redactor.Bytes(body)}
-	_ = proxy.lifecycle.Finish(ctx, executionID, domain.ExecutionSucceeded, proxy.now(), "")
+	if err := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionSucceeded, "", cleanup, proxy.now); err != nil {
+		return HTTPResult{}, err
+	}
 	return result, nil
 }
 
