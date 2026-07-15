@@ -24,9 +24,9 @@
 已完成工作项：
 
 ```text
-ID / 目标：AKV-012.a / 增加 Web 账号密码自助注册
-结果：登录页可切换注册表单；注册在一个 PostgreSQL 事务中创建立即启用的无特权普通用户、Session 和可归因审计，成功后直接进入工作台
-验证：Vue 安全扫描与 15 项测试、浏览器注册/退出冒烟、`make verify`、身份/控制/存储 race、真实 PostgreSQL 迁移/并发/回滚、五个二进制构建和 `git diff --check` 通过
+ID / 目标：AKV-013.a / 重写本地教程的 MCP Server 启动章节
+结果：教程以本地 Claude Code 为例，说明 stdio 启动、local scope 配置、连接验证、Token 轮换、心跳与排错，并提供人工批准前后两段 Prompt 的 GET /healthz 完整演示
+验证：Claude Code 2.1.209 隔离配置实测 `mcp add/get`，Base64 期望值复核，`make verify` 和 `git diff --check` 通过
 ```
 
 ## 队列
@@ -46,6 +46,7 @@ ID / 目标：AKV-012.a / 增加 Web 账号密码自助注册
 | `AKV-011.a` | `DONE` | 010.a | Vue 3 控制台、构建链、测试与本地运行教程 |
 | `AKV-011.b` | `DONE` | 011.a | 前端源码与生成资源职责分离的项目结构 |
 | `AKV-012.a` | `DONE` | 011.b | MVP 普通用户账号密码自助注册 |
+| `AKV-013.a` | `DONE` | 012.a | 本地 Claude Code 连接 MCP 并经人工审批执行完整样例的教程 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -58,10 +59,10 @@ ID / 目标：AKV-012.a / 增加 Web 账号密码自助注册
 - 2026-07-15：`AKV-011.a` Vue 6 项测试、浏览器冒烟、`make verify`、全包 race、真实临时 PostgreSQL、`make build`、`git diff --check` 通过。
 - 2026-07-15：`AKV-011.b` Vue 安全扫描与 6 项测试、Vite 构建、`make verify`、五个二进制构建和 `git diff --check` 通过。
 - 2026-07-15：`AKV-012.a` Vue 15 项测试、浏览器注册/退出、`make verify`、race、真实 PostgreSQL 注册并发/回滚、`make build` 和 `git diff --check` 通过。
+- 2026-07-15：`AKV-013.a` Claude Code 2.1.209 隔离配置的 MCP 命令实测、Base64 响应复核、`make verify` 和 `git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-008.e1`：实现无读取能力的 OpenBao KV/Database Role 控制写客户端｜下一步 `AKV-008.e2`｜计划提交 `feat(vault): add control-plane writer`
 - 2026-07-15｜`AKV-008.e2`：实现服务端路径的目标/凭证录入更新停用与无秘密 Web DTO｜下一步 `AKV-008.f`｜计划提交 `feat(control): manage credential catalog`
 - 2026-07-15｜`AKV-008.f`：实现权限隔离的申请查询、原子决策/撤销、审计链和不恢复 Grant 的 incident 处置｜下一步 `AKV-008.g`｜计划提交 `feat(control): expose approval workspace`
 - 2026-07-15｜`AKV-008.g`：实现无持久化/无不安全渲染的嵌入式人类审批工作台与 CSP｜下一步 `AKV-008.h`｜计划提交 `feat(web): add human control console`
@@ -71,6 +72,7 @@ ID / 目标：AKV-012.a / 增加 Web 账号密码自助注册
 - 2026-07-15｜`AKV-011.a`：将完整控制台迁移为 Vue 3 + Vite，保留单二进制与安全边界并更新本地教程｜下一步无｜计划提交 `feat(web): migrate console to Vue`
 - 2026-07-15｜`AKV-011.b`：将 Vue 工程迁移至根目录并保留 Go 嵌入产物边界｜下一步无｜计划提交 `refactor(web): separate source from embedded assets`
 - 2026-07-15｜`AKV-012.a`：实现立即启用且固定无特权的账号密码自助注册、原子 Session 和可归因审计｜下一步无｜计划提交 `feat(web): add account registration`
+- 2026-07-15｜`AKV-013.a`：重写本地 Claude Code 的 MCP 连接、人工批准和一次性执行样例｜下一步无｜计划提交 `docs(local): explain Claude Code MCP demo`
 
 ## MVP 验收
 
