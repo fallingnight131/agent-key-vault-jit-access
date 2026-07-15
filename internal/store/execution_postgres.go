@@ -34,19 +34,19 @@ func (repository *PostgreSQLExecutionRepository) LoadPlan(ctx context.Context, r
 	var operationHash []byte
 	err := repository.database.QueryRowContext(ctx, `
 SELECT r.id, g.id, r.agent_id, r.task_id, r.operation_hash, r.parameters,
-       t.id, t.name, t.description, t.connector_type, t.connection_config,
-       t.default_credential_id, t.status,
+	       t.id, t.name, t.description, t.connector_type, t.connection_config,
+	       t.config_version, t.default_credential_id, t.status,
        c.id, c.alias, c.credential_type, c.status, c.vault_provider,
        c.vault_path, c.vault_version
 FROM authorization_requests r
 JOIN operation_grants g ON g.request_id = r.id
 JOIN targets t ON t.id = r.target_id
 JOIN credentials c ON c.id = r.credential_id
-WHERE r.id = $1`, requestID).Scan(
+WHERE r.id = $1 AND r.request_format = 2`, requestID).Scan(
 		&plan.RequestID, &plan.GrantID, &plan.AgentID, &plan.TaskID,
 		&operationHash, &operationJSON,
 		&plan.Target.ID, &plan.Target.Name, &plan.Target.Description, &connectorType,
-		&configJSON, &plan.Target.DefaultCredentialID, &targetStatus,
+		&configJSON, &plan.Target.ConfigVersion, &plan.Target.DefaultCredentialID, &targetStatus,
 		&plan.Credential.ID, &plan.Credential.Alias, &credentialType,
 		&credentialStatus, &plan.Credential.VaultProvider,
 		&plan.Credential.VaultPath, &plan.Credential.VaultVersion,

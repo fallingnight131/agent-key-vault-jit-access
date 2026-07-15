@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -21,6 +22,9 @@ type AgentAuthenticator interface {
 }
 type TargetDiscovery interface {
 	Discover(context.Context, string) ([]catalog.Target, error)
+}
+type OperationDiscovery interface {
+	DiscoverOperations(context.Context, string, string) ([]catalog.PublicOperation, error)
 }
 type TaskManager interface {
 	Begin(context.Context, string) (task.Record, error)
@@ -42,6 +46,8 @@ type AuthorizationStatus struct {
 	ReclaimStatus    *string    `json:"reclaim_status,omitempty"`
 	ErrorCode        *string    `json:"error_code,omitempty"`
 	OperationKind    string     `json:"operation_kind"`
+	OperationID      string     `json:"operation_id,omitempty"`
+	OperationVersion int        `json:"version,omitempty"`
 }
 type StatusReader interface {
 	GetAuthorizationStatus(context.Context, string, string) (AuthorizationStatus, error)
@@ -53,6 +59,7 @@ type AgentRevoker interface {
 type AgentRuntime struct {
 	Authenticator  AgentAuthenticator
 	Targets        TargetDiscovery
+	Operations     OperationDiscovery
 	Tasks          TaskManager
 	Authorizations AuthorizationSubmitter
 	Statuses       StatusReader
@@ -61,6 +68,9 @@ type AgentRuntime struct {
 
 func (runtime *AgentRuntime) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/agent/targets", runtime.listTargets)
+	if runtime.Operations != nil {
+		mux.HandleFunc("GET /v1/agent/targets/{target_id}/operations", runtime.listOperations)
+	}
 	mux.HandleFunc("POST /v1/agent/tasks", runtime.beginTask)
 	mux.HandleFunc("POST /v1/agent/tasks/{task_id}/heartbeat", runtime.heartbeat)
 	mux.HandleFunc("POST /v1/agent/tasks/{task_id}/end", runtime.endTask)
@@ -97,17 +107,31 @@ func (runtime *AgentRuntime) listTargets(response http.ResponseWriter, request *
 		return
 	}
 	type dto struct {
-		ID          string   `json:"id"`
-		Name        string   `json:"name"`
-		Description string   `json:"description"`
-		Connector   string   `json:"connector_type"`
-		Methods     []string `json:"allowed_http_methods,omitempty"`
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		Connector     string `json:"connector_type"`
+		OperationsURL string `json:"operations_url"`
 	}
 	result := make([]dto, 0, len(targets))
 	for _, target := range targets {
-		result = append(result, dto{target.ID, target.Name, target.Description, string(target.ConnectorType), target.ConnectionConfig.AllowedHTTPMethods})
+		result = append(result, dto{target.ID, target.Name, target.Description, string(target.ConnectorType), "/v1/agent/targets/" + target.ID + "/operations"})
 	}
 	writeJSON(response, 200, result)
+}
+
+func (runtime *AgentRuntime) listOperations(response http.ResponseWriter, request *http.Request) {
+	principal, ok := runtime.authenticate(response, request)
+	if !ok {
+		return
+	}
+	targetID := request.PathValue("target_id")
+	operations, err := runtime.Operations.DiscoverOperations(request.Context(), principal.AgentID, targetID)
+	if err != nil {
+		writeJSON(response, http.StatusNotFound, map[string]string{"error": "TARGET_NOT_FOUND"})
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"target_id": targetID, "operations": operations})
 }
 func (runtime *AgentRuntime) beginTask(response http.ResponseWriter, request *http.Request) {
 	principal, ok := runtime.authenticate(response, request)
@@ -168,7 +192,11 @@ func (runtime *AgentRuntime) requestAuthorization(response http.ResponseWriter, 
 	}
 	record, err := runtime.Authorizations.Submit(request.Context(), principal, input)
 	if err != nil {
-		writeJSON(response, 403, map[string]string{"error": "AUTHORIZATION_DENIED"})
+		if errors.Is(err, authorization.ErrInvalidRequest) {
+			writeJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_ARGUMENTS"})
+		} else {
+			writeJSON(response, http.StatusForbidden, map[string]string{"error": "OPERATION_UNAVAILABLE"})
+		}
 		return
 	}
 	writeJSON(response, 201, map[string]any{"request_id": record.ID, "status": record.Status, "approval_deadline": record.ApprovalDeadline})

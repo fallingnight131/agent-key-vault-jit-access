@@ -168,6 +168,7 @@ func TestPostgreSQLAuthorizationConcurrency(t *testing.T) {
 }
 
 var testOperationHash = [32]byte{1, 2, 3, 4}
+var testDefinitionHash = [32]byte{5, 6, 7, 8}
 
 const (
 	testUserID       = "00000000-0000-4000-8000-000000000001"
@@ -178,6 +179,8 @@ const (
 	testRequestID    = "00000000-0000-4000-8000-000000000006"
 	testClaimRequest = "00000000-0000-4000-8000-000000000007"
 	testGrantID      = "00000000-0000-4000-8000-000000000008"
+	testOperationSet = "00000000-0000-4000-8000-000000000009"
+	testOperationID  = "00000000-0000-4000-8000-000000000010"
 )
 
 func seedAuthorizationDatabase(t *testing.T, database *sql.DB) {
@@ -197,7 +200,12 @@ func seedAuthorizationDatabase(t *testing.T, database *sql.DB) {
 		{`INSERT INTO targets (id, name, connector_type, connection_config, status) VALUES ($1, 'target', 'HTTP', '{"base_url":"https://target.example.test","allowed_http_methods":["POST"]}', 'ACTIVE')`, []any{testTargetID}},
 		{`INSERT INTO credentials (id, target_id, alias, credential_type, status, vault_provider, vault_path) VALUES ($1, $2, 'default', 'API_KEY', 'ACTIVE', 'OPENBAO', 'kv/data/fixture')`, []any{testCredentialID, testTargetID}},
 		{`UPDATE targets SET default_credential_id = $1 WHERE id = $2`, []any{testCredentialID, testTargetID}},
-		{`INSERT INTO authorization_requests (id, agent_id, task_id, target_id, credential_id, operation, parameters, operation_hash, reason, status, created_at, approval_deadline) VALUES ($1,$2,$3,$4,$5,'HTTP','{}',$6,'fixture reason','PENDING_APPROVAL',$7,$8)`, []any{testRequestID, testAgentID, testTaskID, testTargetID, testCredentialID, testOperationHash[:], now, now.Add(authorization.ApprovalWait)}},
+		{`INSERT INTO operation_sets (id,name,executor_type,status,created_by_user_id,updated_by_user_id) VALUES ($1,'fixture-http','HTTP','ACTIVE',$2,$2)`, []any{testOperationSet, testUserID}},
+		{`INSERT INTO operations (id,operation_set_id,operation_key,status,created_by_user_id,updated_by_user_id) VALUES ($1,$2,'fixture_post','ACTIVE',$3,$3)`, []any{testOperationID, testOperationSet, testUserID}},
+		{`INSERT INTO operation_versions (operation_id,version,name,operation_kind,risk_level,arguments_schema,execution_template,definition_hash,created_by_user_id) VALUES ($1,1,'Fixture POST','HTTP','MEDIUM','{"type":"object","properties":{},"required":[],"additionalProperties":false}','{"kind":"HTTP","http":{"method":"POST","path":"/execute"}}',$2,$3)`, []any{testOperationID, testDefinitionHash[:], testUserID}},
+		{`UPDATE operations SET current_version=1 WHERE id=$1`, []any{testOperationID}},
+		{`INSERT INTO target_operation_bindings (target_id,operation_id,version,status,created_by_user_id,updated_by_user_id) VALUES ($1,$2,1,'ACTIVE',$3,$3)`, []any{testTargetID, testOperationID, testUserID}},
+		{`INSERT INTO authorization_requests (id,agent_id,task_id,target_id,credential_id,operation,parameters,operation_hash,reason,status,created_at,approval_deadline,request_format,operation_id,operation_version,arguments,definition_hash,target_config_version) VALUES ($1,$2,$3,$4,$5,'HTTP','{"kind":"HTTP","http":{"method":"POST","path":"/execute"}}',$6,'fixture reason','PENDING_APPROVAL',$7,$8,2,$9,1,'{}',$10,1)`, []any{testRequestID, testAgentID, testTaskID, testTargetID, testCredentialID, testOperationHash[:], now, now.Add(authorization.ApprovalWait), testOperationID, testDefinitionHash[:]}},
 	}
 	for _, statement := range statements {
 		if _, err := database.ExecContext(ctx, statement.query, statement.args...); err != nil {
@@ -227,16 +235,8 @@ func assertDecisionRows(t *testing.T, database *sql.DB) {
 func seedApprovedGrant(t *testing.T, database *sql.DB) {
 	t.Helper()
 	now := time.Now().UTC()
+	insertSafeAuthorizationRequest(t, database, testClaimRequest, testTaskID, "APPROVED", now, now.Add(authorization.MaximumGrantTTL))
 	_, err := database.Exec(`
-INSERT INTO authorization_requests (id, agent_id, task_id, target_id, credential_id, operation, parameters, operation_hash, reason, status, created_at, approval_deadline)
-VALUES ($1,$2,$3,$4,$5,'HTTP','{"kind":"HTTP","http":{"method":"POST","path":"/execute"}}',$6,'claim fixture','APPROVED',$7,$8)`,
-		testClaimRequest, testAgentID, testTaskID, testTargetID, testCredentialID,
-		testOperationHash[:], now, now.Add(authorization.MaximumGrantTTL),
-	)
-	if err != nil {
-		t.Fatalf("seed approved request: %v", err)
-	}
-	_, err = database.Exec(`
 INSERT INTO operation_grants (id, request_id, agent_id, task_id, target_id, credential_id, operation_hash, approved_at, expires_at, status)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'APPROVED')`,
 		testGrantID, testClaimRequest, testAgentID, testTaskID, testTargetID,
@@ -244,5 +244,17 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'APPROVED')`,
 	)
 	if err != nil {
 		t.Fatalf("seed approved grant: %v", err)
+	}
+}
+
+func insertSafeAuthorizationRequest(t *testing.T, database *sql.DB, requestID, taskID, status string, createdAt, deadline time.Time) {
+	t.Helper()
+	_, err := database.Exec(`
+INSERT INTO authorization_requests (id,agent_id,task_id,target_id,credential_id,operation,parameters,operation_hash,reason,status,created_at,approval_deadline,request_format,operation_id,operation_version,arguments,definition_hash,target_config_version)
+VALUES ($1,$2,$3,$4,$5,'HTTP','{"kind":"HTTP","http":{"method":"POST","path":"/execute"}}',$6,'fixture',$7,$8,$9,2,$10,1,'{}',$11,1)`,
+		requestID, testAgentID, taskID, testTargetID, testCredentialID, testOperationHash[:], status, createdAt, deadline, testOperationID, testDefinitionHash[:],
+	)
+	if err != nil {
+		t.Fatalf("seed safe authorization request: %v", err)
 	}
 }

@@ -64,6 +64,21 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 		t.Fatalf("CreateTarget() error = %v", err)
 	}
 	adminActor := identity.User{ID: testUserID, IsAdmin: true, OwnerActive: true}
+	operationSet, err := catalogService.CreateOperationSet(ctx, adminActor, catalog.CreateOperationSetInput{Name: "control-flow-http", ExecutorType: catalog.ExecutorHTTP})
+	if err != nil {
+		t.Fatalf("CreateOperationSet() error = %v", err)
+	}
+	safeOperation, operationVersion, err := catalogService.CreateOperation(ctx, adminActor, operationSet.ID, catalog.PublishOperationInput{
+		Key: "create_ticket", Name: "Create ticket", RiskLevel: catalog.RiskMedium,
+		ArgumentsSchema:   []byte(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`),
+		ExecutionTemplate: []byte(`{"kind":"HTTP","http":{"method":"POST","path":"/tickets"}}`),
+	})
+	if err != nil {
+		t.Fatalf("CreateOperation() error = %v", err)
+	}
+	if _, err := catalogService.BindOperation(ctx, adminActor, target.ID, safeOperation.ID, operationVersion.Version, true); err != nil {
+		t.Fatalf("BindOperation() error = %v", err)
+	}
 	targets, credentials, err := catalogService.ListCatalog(ctx, adminActor)
 	if err != nil || len(targets) != 1 || len(credentials) != 1 || credentials[0].ID != credential.ID {
 		t.Fatalf("ListCatalog() targets=%+v credentials=%+v error=%v", targets, credentials, err)
@@ -91,7 +106,7 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 	requestService := authorization.NewService(taskService, catalogService, requestRepository)
 	requestRecord, err := requestService.Submit(ctx, principal, authorization.SubmitInput{
 		TaskID: taskRecord.ID, TargetID: target.ID, Reason: "integration fixture",
-		Operation: authorization.Operation{Kind: authorization.OperationHTTP, HTTP: &authorization.HTTPParameters{Method: "POST", Path: "/tickets"}},
+		OperationID: safeOperation.ID, Version: operationVersion.Version, Arguments: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("Submit() error = %v", err)

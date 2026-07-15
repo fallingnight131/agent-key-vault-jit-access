@@ -55,6 +55,7 @@ type Target struct {
 	Description         string
 	ConnectorType       ConnectorType
 	ConnectionConfig    ConnectionConfig
+	ConfigVersion       int
 	DefaultCredentialID string
 	Active              bool
 	CreatedAt           time.Time
@@ -96,14 +97,16 @@ type Repository interface {
 }
 
 type Service struct {
-	repository Repository
-	writer     vault.ControlWriter
-	now        func() time.Time
-	newID      func() (string, error)
+	repository          Repository
+	operationRepository OperationRepository
+	writer              vault.ControlWriter
+	now                 func() time.Time
+	newID               func() (string, error)
 }
 
 func NewManagementService(repository Repository, writer vault.ControlWriter) *Service {
-	return &Service{repository: repository, writer: writer, now: time.Now, newID: randomID}
+	operations, _ := repository.(OperationRepository)
+	return &Service{repository: repository, operationRepository: operations, writer: writer, now: time.Now, newID: randomID}
 }
 
 type ProvisionInput struct {
@@ -120,7 +123,8 @@ type CredentialUpdate struct {
 }
 
 func NewService(repository Repository) *Service {
-	return &Service{repository: repository, now: time.Now, newID: randomID}
+	operations, _ := repository.(OperationRepository)
+	return &Service{repository: repository, operationRepository: operations, now: time.Now, newID: randomID}
 }
 
 func (service *Service) CreateTarget(ctx context.Context, actor identity.User, input CreateInput) (Target, Credential, error) {
@@ -163,7 +167,7 @@ func (service *Service) createTarget(ctx context.Context, actor identity.User, i
 	target := Target{
 		ID: targetID, Name: input.Name, Description: input.Description,
 		ConnectorType: input.ConnectorType, ConnectionConfig: input.ConnectionConfig,
-		DefaultCredentialID: credentialID, Active: true, CreatedAt: now,
+		ConfigVersion: 1, DefaultCredentialID: credentialID, Active: true, CreatedAt: now,
 	}
 	credential := Credential{
 		ID: credentialID, Alias: input.CredentialAlias, Type: input.CredentialType,

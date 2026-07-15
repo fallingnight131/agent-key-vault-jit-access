@@ -67,7 +67,7 @@ func main() {
 	taskService := task.NewService(store.NewPostgreSQLTaskRepository(database))
 	requestRepository := store.NewPostgreSQLRequestRepository(database)
 	runtime := &control.AgentRuntime{
-		Authenticator: agentService, Targets: catalogService, Tasks: taskService,
+		Authenticator: agentService, Targets: catalogService, Operations: catalogService, Tasks: taskService,
 		Authorizations: authorization.NewService(taskService, catalogService, requestRepository),
 		Statuses:       requestRepository,
 	}

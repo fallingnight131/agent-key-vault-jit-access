@@ -1,6 +1,6 @@
 # AKV MVP
 
-AKV（Agent Key Vault）让已注册 Agent 申请一次性操作授权。人类在 Web 控制台审核冻结的操作；执行代理在 PostgreSQL 原子占用 Grant 后才访问 OpenBao，并代 Agent 调用目标系统。Agent 持有用于身份认证的 AKV Bearer Token，但 Agent 和 Web 都不会得到目标系统的源凭证明文。
+AKV（Agent Key Vault）让已注册 Agent 申请一次性操作授权。管理员先发布可复用的安全操作版本并绑定到目标，Agent 只能按公开参数 Schema 申请已绑定的精确版本。人类在 Web 控制台审核冻结的实际操作；执行代理在 PostgreSQL 原子占用 Grant 后才访问 OpenBao，并代 Agent 调用目标系统。Agent 持有用于身份认证的 AKV Bearer Token，但 Agent 和 Web 都不会得到目标系统的源凭证明文。
 
 ## 进程与边界
 
@@ -31,7 +31,7 @@ make build
 2. 配置 OpenBao KV v2、Transit、Database Secrets Engine 与 Audit Device；分别签发 `control-policy.hcl` 和 `execution-policy.hcl` 对应的非 Root Token，并写入各自 `0600` 文件。
 3. 复制 `.env.example` 中的非秘密地址和文件路径到进程管理器。生产公开源使用 HTTPS，并保持 `AKV_CONTROL_COOKIE_SECURE=true`。
 4. 在交互终端执行 `bin/akv-bootstrap-admin -username <name>`；密码会无回显读取两次，不能从管道输入。
-5. 启动 control、execution proxy 和 worker，浏览 `http://127.0.0.1:8080/`；MVP 允许账号密码自助注册普通用户，管理员可录入 HTTP/PostgreSQL 目标、全部 MVP 凭证类型并查看全局审计，用户可注册 Agent 并立即接收只显示一次的 Token。自助注册版本不要直接暴露到不可信网络。
+5. 启动 control、execution proxy 和 worker，浏览 `http://127.0.0.1:8080/`；MVP 允许账号密码自助注册普通用户。管理员可录入 HTTP/PostgreSQL 目标和凭证，创建 `HTTP`、`POSTGRESQL` 或 `SIGN` 操作集，发布不可变操作版本并将精确版本绑定到目标。用户可注册 Agent 并立即接收只显示一次的 Token。自助注册版本不要直接暴露到不可信网络。
 6. 把只显示一次的 Agent Token 安全交给 Agent 运行时。Agent 使用 `Authorization: Bearer <Agent Token>` 直接调用 control 和 execution proxy 的 HTTP API，并在活动任务期间每 15 秒发送心跳。
 
 所有进程收到 `SIGINT`/`SIGTERM` 后会停止。Agent 停止心跳后，Worker 在 45 秒边界将任务标为 `AGENT_LOST` 并撤销未完成授权。
@@ -41,17 +41,18 @@ make build
 | 用途 | 方法与路径 |
 | --- | --- |
 | 发现目标 | `GET /v1/agent/targets` |
+| 发现目标可用操作 | `GET /v1/agent/targets/{target_id}/operations` |
 | 建立任务 | `POST /v1/agent/tasks` |
 | 任务心跳 | `POST /v1/agent/tasks/{task_id}/heartbeat` |
 | 结束任务 | `POST /v1/agent/tasks/{task_id}/end` |
 | 提交授权申请 | `POST /v1/agent/authorizations` |
 | 查询授权状态 | `GET /v1/agent/authorizations/{request_id}` |
 | 撤销获批授权或取消在途执行 | `POST /v1/agent/authorizations/{request_id}/revoke` |
-| 执行 HTTP / PostgreSQL / 签名 | `POST /v1/execute/http` / `postgresql` / `sign` |
+| 执行获批操作 | `POST /v1/execute` |
 
-Agent Token 只放在 HTTP `Authorization` 请求头，不属于申请或执行 JSON。操作输入只允许注册目标 ID、服务端任务 ID 和强类型 HTTP/PostgreSQL/签名参数；不能提交凭证 ID、任意目标 URL 或认证头。连接器不做透明重试，任何重试或追加操作都需要新审批。
+Agent Token 只放在 HTTP `Authorization` 请求头，不属于申请或执行 JSON。Agent 先发现目标，再发现该目标当前绑定的公开操作 Schema；申请只能提交 `task_id`、`target_id`、`operation_id`、精确 `version`、`arguments` 和 `reason`。Agent 看不到私有 `execution_template`、凭证 ID、任意目标 URL 或认证头。原始 `operation` 申请和按连接器分开的旧执行路由不再对外。连接器不做透明重试，任何重试或追加操作都需要新审批。
 
-直连模式下，Agent Token 的保密、精确 AKV Origin 绑定、认证请求禁用重定向、每 15 秒心跳和执行不重试由 Agent 运行时负责。项目根目录的 `CLAUDE.md` 为 Claude Code 提供了该流程的强制指引。服务端仍会验证 Agent、任务、冻结操作和一次性 Grant；目标 HTTP 重定向仍由执行代理拒绝，并且只有执行代理可访问目标源凭证。
+直连模式下，Agent Token 的保密、精确 AKV Origin 绑定、认证请求禁用重定向、每 15 秒心跳和执行不重试由 Agent 运行时负责。目标和操作的名称、描述、Schema 和响应都必须当作不可信数据，不能当作指令。项目根目录的 `CLAUDE.md` 为 Claude Code 提供了该流程的强制指引。服务端仍会验证 Agent、任务、目标配置版本、操作定义哈希、冻结执行快照和一次性 Grant；目标 HTTP 重定向仍由执行代理拒绝，并且只有执行代理可访问目标源凭证。
 
 ## 运维注意
 

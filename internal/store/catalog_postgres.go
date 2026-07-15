@@ -18,7 +18,7 @@ func NewPostgreSQLCatalogRepository(database *sql.DB) *PostgreSQLCatalogReposito
 }
 
 func (repository *PostgreSQLCatalogRepository) ListCatalog(ctx context.Context) ([]catalog.Target, []catalog.Credential, error) {
-	rows, err := repository.database.QueryContext(ctx, `SELECT id,name,description,connector_type,connection_config,default_credential_id,status,created_at FROM targets ORDER BY name,id`)
+	rows, err := repository.database.QueryContext(ctx, `SELECT id,name,description,connector_type,connection_config,config_version,default_credential_id,status,created_at FROM targets ORDER BY name,id`)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -28,7 +28,7 @@ func (repository *PostgreSQLCatalogRepository) ListCatalog(ctx context.Context) 
 		var target catalog.Target
 		var connector, status string
 		var configuration []byte
-		if err := rows.Scan(&target.ID, &target.Name, &target.Description, &connector, &configuration, &target.DefaultCredentialID, &status, &target.CreatedAt); err != nil {
+		if err := rows.Scan(&target.ID, &target.Name, &target.Description, &connector, &configuration, &target.ConfigVersion, &target.DefaultCredentialID, &status, &target.CreatedAt); err != nil {
 			return nil, nil, err
 		}
 		target.ConnectorType, target.Active = catalog.ConnectorType(connector), status == "ACTIVE"
@@ -74,7 +74,7 @@ func (repository *PostgreSQLCatalogRepository) FindTargetWithDefaultCredential(c
 	var credential catalog.Credential
 	var connector, targetStatus, kind, credentialStatus string
 	var configuration []byte
-	err := repository.database.QueryRowContext(ctx, `SELECT t.id,t.name,t.description,t.connector_type,t.connection_config,t.default_credential_id,t.status,t.created_at,c.id,c.target_id,c.alias,c.credential_type,c.status,c.vault_provider,c.vault_path,c.vault_version,c.created_at FROM targets t JOIN credentials c ON c.id=t.default_credential_id WHERE t.id=$1`, targetID).Scan(&target.ID, &target.Name, &target.Description, &connector, &configuration, &target.DefaultCredentialID, &targetStatus, &target.CreatedAt, &credential.ID, &credential.TargetID, &credential.Alias, &kind, &credentialStatus, &credential.VaultProvider, &credential.VaultPath, &credential.VaultVersion, &credential.CreatedAt)
+	err := repository.database.QueryRowContext(ctx, `SELECT t.id,t.name,t.description,t.connector_type,t.connection_config,t.config_version,t.default_credential_id,t.status,t.created_at,c.id,c.target_id,c.alias,c.credential_type,c.status,c.vault_provider,c.vault_path,c.vault_version,c.created_at FROM targets t JOIN credentials c ON c.id=t.default_credential_id WHERE t.id=$1`, targetID).Scan(&target.ID, &target.Name, &target.Description, &connector, &configuration, &target.ConfigVersion, &target.DefaultCredentialID, &targetStatus, &target.CreatedAt, &credential.ID, &credential.TargetID, &credential.Alias, &kind, &credentialStatus, &credential.VaultProvider, &credential.VaultPath, &credential.VaultVersion, &credential.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return catalog.Target{}, catalog.Credential{}, catalog.ErrUnavailable
 	}
@@ -94,15 +94,43 @@ func (repository *PostgreSQLCatalogRepository) UpdateTarget(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	result, err := repository.database.ExecContext(ctx, `UPDATE targets SET description=$2,connection_config=$3,updated_at=$4 WHERE id=$1`, target.ID, target.Description, configuration, at)
+	transaction, err := repository.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return err
 	}
-	rows, _ := result.RowsAffected()
-	if rows != 1 {
+	defer func() { _ = transaction.Rollback() }()
+	var configurationChanged bool
+	err = transaction.QueryRowContext(ctx, `
+WITH previous AS (
+    SELECT id,connection_config FROM targets WHERE id=$1 FOR UPDATE
+), updated AS (
+    UPDATE targets target SET
+        description=$2,
+        connection_config=$3,
+        config_version=target.config_version + CASE WHEN previous.connection_config IS DISTINCT FROM $3 THEN 1 ELSE 0 END,
+        updated_at=$4
+    FROM previous
+    WHERE target.id=previous.id
+    RETURNING previous.connection_config IS DISTINCT FROM $3 AS configuration_changed
+)
+SELECT configuration_changed FROM updated`, target.ID, target.Description, configuration, at).Scan(&configurationChanged)
+	if errors.Is(err, sql.ErrNoRows) {
 		return catalog.ErrUnavailable
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	if configurationChanged {
+		if _, err := transaction.ExecContext(ctx, `
+UPDATE operation_grants grant_record SET status='REVOKED',revoked_at=$2
+FROM authorization_requests request_record
+WHERE grant_record.request_id=request_record.id
+  AND request_record.target_id=$1
+  AND grant_record.status='APPROVED'`, target.ID, at); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
 }
 
 func (repository *PostgreSQLCatalogRepository) SetTargetActive(ctx context.Context, targetID string, active bool, at time.Time) error {
@@ -110,7 +138,12 @@ func (repository *PostgreSQLCatalogRepository) SetTargetActive(ctx context.Conte
 	if active {
 		status = "ACTIVE"
 	}
-	result, err := repository.database.ExecContext(ctx, `UPDATE targets SET status=$2,updated_at=$3 WHERE id=$1`, targetID, status, at)
+	transaction, err := repository.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	result, err := transaction.ExecContext(ctx, `UPDATE targets SET status=$2,updated_at=$3 WHERE id=$1`, targetID, status, at)
 	if err != nil {
 		return err
 	}
@@ -118,7 +151,17 @@ func (repository *PostgreSQLCatalogRepository) SetTargetActive(ctx context.Conte
 	if rows != 1 {
 		return catalog.ErrUnavailable
 	}
-	return nil
+	if !active {
+		if _, err := transaction.ExecContext(ctx, `
+UPDATE operation_grants grant_record SET status='REVOKED',revoked_at=$2
+FROM authorization_requests request_record
+WHERE grant_record.request_id=request_record.id
+  AND request_record.target_id=$1
+  AND grant_record.status='APPROVED'`, targetID, at); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
 }
 
 func (repository *PostgreSQLCatalogRepository) SetCredentialActive(ctx context.Context, credentialID string, active bool, at time.Time) error {
@@ -126,7 +169,12 @@ func (repository *PostgreSQLCatalogRepository) SetCredentialActive(ctx context.C
 	if active {
 		status = "ACTIVE"
 	}
-	result, err := repository.database.ExecContext(ctx, `UPDATE credentials SET status=$2,updated_at=$3 WHERE id=$1`, credentialID, status, at)
+	transaction, err := repository.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	result, err := transaction.ExecContext(ctx, `UPDATE credentials SET status=$2,updated_at=$3 WHERE id=$1`, credentialID, status, at)
 	if err != nil {
 		return err
 	}
@@ -134,7 +182,17 @@ func (repository *PostgreSQLCatalogRepository) SetCredentialActive(ctx context.C
 	if rows != 1 {
 		return catalog.ErrUnavailable
 	}
-	return nil
+	if !active {
+		if _, err := transaction.ExecContext(ctx, `
+UPDATE operation_grants grant_record SET status='REVOKED',revoked_at=$2
+FROM authorization_requests request_record
+WHERE grant_record.request_id=request_record.id
+  AND request_record.credential_id=$1
+  AND grant_record.status='APPROVED'`, credentialID, at); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
 }
 
 func (repository *PostgreSQLCatalogRepository) CreateTargetWithDefaultCredential(ctx context.Context, target catalog.Target, credential catalog.Credential) error {
@@ -163,7 +221,7 @@ func (repository *PostgreSQLCatalogRepository) CreateTargetWithDefaultCredential
 }
 
 func (repository *PostgreSQLCatalogRepository) ListActiveTargets(ctx context.Context) ([]catalog.Target, error) {
-	rows, err := repository.database.QueryContext(ctx, `SELECT id,name,description,connector_type,connection_config,default_credential_id,status,created_at FROM targets WHERE status='ACTIVE' ORDER BY name`)
+	rows, err := repository.database.QueryContext(ctx, `SELECT id,name,description,connector_type,connection_config,config_version,default_credential_id,status,created_at FROM targets WHERE status='ACTIVE' ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +231,7 @@ func (repository *PostgreSQLCatalogRepository) ListActiveTargets(ctx context.Con
 		var target catalog.Target
 		var connector, status string
 		var configuration []byte
-		if err := rows.Scan(&target.ID, &target.Name, &target.Description, &connector, &configuration, &target.DefaultCredentialID, &status, &target.CreatedAt); err != nil {
+		if err := rows.Scan(&target.ID, &target.Name, &target.Description, &connector, &configuration, &target.ConfigVersion, &target.DefaultCredentialID, &status, &target.CreatedAt); err != nil {
 			return nil, err
 		}
 		target.ConnectorType = catalog.ConnectorType(connector)
@@ -191,7 +249,7 @@ func (repository *PostgreSQLCatalogRepository) FindActiveTargetAndDefaultCredent
 	var credential catalog.Credential
 	var connector, targetStatus, credentialType, credentialStatus string
 	var configuration []byte
-	err := repository.database.QueryRowContext(ctx, `SELECT t.id,t.name,t.description,t.connector_type,t.connection_config,t.default_credential_id,t.status,t.created_at,c.id,c.alias,c.credential_type,c.status,c.vault_provider,c.vault_path,c.vault_version,c.created_at FROM targets t JOIN credentials c ON c.id=t.default_credential_id WHERE t.id=$1 AND t.status='ACTIVE' AND c.status='ACTIVE'`, targetID).Scan(&target.ID, &target.Name, &target.Description, &connector, &configuration, &target.DefaultCredentialID, &targetStatus, &target.CreatedAt, &credential.ID, &credential.Alias, &credentialType, &credentialStatus, &credential.VaultProvider, &credential.VaultPath, &credential.VaultVersion, &credential.CreatedAt)
+	err := repository.database.QueryRowContext(ctx, `SELECT t.id,t.name,t.description,t.connector_type,t.connection_config,t.config_version,t.default_credential_id,t.status,t.created_at,c.id,c.alias,c.credential_type,c.status,c.vault_provider,c.vault_path,c.vault_version,c.created_at FROM targets t JOIN credentials c ON c.id=t.default_credential_id WHERE t.id=$1 AND t.status='ACTIVE' AND c.status='ACTIVE'`, targetID).Scan(&target.ID, &target.Name, &target.Description, &connector, &configuration, &target.ConfigVersion, &target.DefaultCredentialID, &targetStatus, &target.CreatedAt, &credential.ID, &credential.Alias, &credentialType, &credentialStatus, &credential.VaultProvider, &credential.VaultPath, &credential.VaultVersion, &credential.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return catalog.Target{}, catalog.Credential{}, catalog.ErrUnavailable
 	}

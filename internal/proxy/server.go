@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fallingnight/akv/internal/agent"
+	"github.com/fallingnight/akv/internal/authorization"
 )
 
 const defaultListenAddress = "127.0.0.1:8081"
@@ -52,6 +53,7 @@ type AgentAuthenticator interface {
 
 type Runtime struct {
 	Authenticator AgentAuthenticator
+	Plans         PlanStore
 	HTTP          HTTPExecutor
 	PostgreSQL    PostgreSQLExecutor
 	Sign          SignExecutor
@@ -76,9 +78,7 @@ func NewRuntimeServer(config ServerConfig, logger *slog.Logger, runtime *Runtime
 		_ = json.NewEncoder(response).Encode(map[string]string{"service": "akv-execution-proxy", "status": "ok"})
 	})
 	if runtime != nil {
-		mux.HandleFunc("POST /v1/execute/http", runtime.executeHTTP)
-		mux.HandleFunc("POST /v1/execute/postgresql", runtime.executePostgreSQL)
-		mux.HandleFunc("POST /v1/execute/sign", runtime.executeSign)
+		mux.HandleFunc("POST /v1/execute", runtime.execute)
 	}
 	return &http.Server{
 		Addr: config.ListenAddress, Handler: executionRequestLogger(logger, mux),
@@ -118,43 +118,57 @@ func (runtime *Runtime) authenticateAndDecode(response http.ResponseWriter, requ
 	return principal, input, true
 }
 
-func (runtime *Runtime) executeHTTP(response http.ResponseWriter, request *http.Request) {
+func (runtime *Runtime) execute(response http.ResponseWriter, request *http.Request) {
 	principal, input, ok := runtime.authenticateAndDecode(response, request)
 	if !ok {
 		return
 	}
-	result, err := runtime.HTTP.Execute(request.Context(), input.RequestID, principal.AgentID, input.TaskID)
-	if err != nil {
-		writeExecutionError(response, err)
+	if runtime.Plans == nil {
+		writeExecutionError(response, ErrExecutionDenied)
 		return
 	}
-	writePublicJSON(response, http.StatusOK, result)
-}
-
-func (runtime *Runtime) executePostgreSQL(response http.ResponseWriter, request *http.Request) {
-	principal, input, ok := runtime.authenticateAndDecode(response, request)
-	if !ok {
+	plan, err := runtime.Plans.LoadPlan(request.Context(), input.RequestID)
+	if err != nil || plan.AgentID != principal.AgentID || plan.TaskID != input.TaskID {
+		writeExecutionError(response, ErrExecutionDenied)
 		return
 	}
-	result, err := runtime.PostgreSQL.Execute(request.Context(), input.RequestID, principal.AgentID, input.TaskID)
-	if err != nil {
-		writeExecutionError(response, err)
-		return
+	switch plan.Operation.Kind {
+	case authorization.OperationHTTP:
+		if runtime.HTTP == nil {
+			writeExecutionError(response, ErrExecutionDenied)
+			return
+		}
+		result, err := runtime.HTTP.Execute(request.Context(), input.RequestID, principal.AgentID, input.TaskID)
+		if err != nil {
+			writeExecutionError(response, err)
+			return
+		}
+		writePublicJSON(response, http.StatusOK, map[string]any{"operation_kind": plan.Operation.Kind, "result": result})
+	case authorization.OperationPostgreSQLStatement, authorization.OperationPostgreSQLBatch:
+		if runtime.PostgreSQL == nil {
+			writeExecutionError(response, ErrExecutionDenied)
+			return
+		}
+		result, err := runtime.PostgreSQL.Execute(request.Context(), input.RequestID, principal.AgentID, input.TaskID)
+		if err != nil {
+			writeExecutionError(response, err)
+			return
+		}
+		writePublicJSON(response, http.StatusOK, map[string]any{"operation_kind": plan.Operation.Kind, "result": result})
+	case authorization.OperationSign:
+		if runtime.Sign == nil {
+			writeExecutionError(response, ErrExecutionDenied)
+			return
+		}
+		result, err := runtime.Sign.Execute(request.Context(), input.RequestID, principal.AgentID, input.TaskID)
+		if err != nil {
+			writeExecutionError(response, err)
+			return
+		}
+		writePublicJSON(response, http.StatusOK, map[string]any{"operation_kind": plan.Operation.Kind, "result": map[string][]byte{"signature": result}})
+	default:
+		writeExecutionError(response, ErrExecutionDenied)
 	}
-	writePublicJSON(response, http.StatusOK, result)
-}
-
-func (runtime *Runtime) executeSign(response http.ResponseWriter, request *http.Request) {
-	principal, input, ok := runtime.authenticateAndDecode(response, request)
-	if !ok {
-		return
-	}
-	result, err := runtime.Sign.Execute(request.Context(), input.RequestID, principal.AgentID, input.TaskID)
-	if err != nil {
-		writeExecutionError(response, err)
-		return
-	}
-	writePublicJSON(response, http.StatusOK, map[string][]byte{"signature": result})
 }
 
 func writeExecutionError(response http.ResponseWriter, err error) {

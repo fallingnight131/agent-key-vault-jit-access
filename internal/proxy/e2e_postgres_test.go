@@ -102,20 +102,69 @@ func TestPostgreSQLEndToEndAuthorizationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	admin := identity.User{ID: e2eOwnerID, IsAdmin: true, OwnerActive: true}
+	operationSet, err := catalogService.CreateOperationSet(ctx, admin, catalog.CreateOperationSetInput{Name: "e2e-http", ExecutorType: catalog.ExecutorHTTP})
+	if err != nil {
+		t.Fatal(err)
+	}
+	safeOperation, operationVersion, err := catalogService.CreateOperation(ctx, admin, operationSet.ID, catalog.PublishOperationInput{
+		Key: "execute_demo", Name: "Execute demo", RiskLevel: catalog.RiskMedium,
+		ArgumentsSchema:   []byte(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`),
+		ExecutionTemplate: []byte(`{"kind":"HTTP","http":{"method":"POST","path":"/execute"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalogService.BindOperation(ctx, admin, targetRecord.ID, safeOperation.ID, operationVersion.Version, true); err != nil {
+		t.Fatal(err)
+	}
 	requests := store.NewPostgreSQLRequestRepository(database)
 	authorizations := authorization.NewService(tasks, catalogService, requests)
+	authorizationRepository := store.NewPostgreSQLAuthorizationRepository(database)
+	approvalService := authorization.NewApprovalService(authorizationRepository)
+	executions := store.NewPostgreSQLExecutionRepository(database)
+	vaultClient := &e2eVault{value: protectedValue}
+	httpProxy := proxy.NewHTTPProxy(executions, authorization.NewExecutionGuard(authorizationRepository), vaultClient, executions)
+	submitAndApprove := func(reason string, version int) (authorization.Request, authorization.Grant) {
+		t.Helper()
+		requestRecord, err := authorizations.Submit(ctx, principal, authorization.SubmitInput{
+			TaskID: taskRecord.ID, TargetID: targetRecord.ID, Reason: reason,
+			OperationID: safeOperation.ID, Version: version, Arguments: []byte(`{}`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, grant, err := approvalService.Decide(
+			ctx, identity.User{ID: e2eOwnerID, OwnerActive: true}, requestRecord.ID, authorization.DecisionApproved, nil,
+		)
+		if err != nil || grant == nil {
+			t.Fatalf("approve error=%v grant=%v", err, grant)
+		}
+		return requestRecord, *grant
+	}
+
+	staleConfigurationRequest, staleConfigurationGrant := submitAndApprove("prove target config snapshot invalidation", operationVersion.Version)
+	updatedConfiguration := targetRecord.ConnectionConfig
+	updatedConfiguration.AllowedHTTPMethods = []string{http.MethodPost, http.MethodPatch}
+	if err := catalogService.UpdateTarget(ctx, admin, targetRecord.ID, "updated after approval", updatedConfiguration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := httpProxy.Execute(ctx, staleConfigurationRequest.ID, principal.AgentID, taskRecord.ID); !errors.Is(err, proxy.ErrExecutionDenied) {
+		t.Fatalf("stale target configuration execution error = %v", err)
+	}
+	if vaultClient.reads.Load() != 0 || targetCalls.Load() != 0 {
+		t.Fatalf("stale target configuration reached protected systems: vault=%d target=%d", vaultClient.reads.Load(), targetCalls.Load())
+	}
+	assertRevokedGrant(t, database, staleConfigurationGrant.ID)
+
 	requestRecord, err := authorizations.Submit(ctx, principal, authorization.SubmitInput{
 		TaskID: taskRecord.ID, TargetID: targetRecord.ID, Reason: "exercise persisted e2e flow",
-		Operation: authorization.Operation{Kind: authorization.OperationHTTP, HTTP: &authorization.HTTPParameters{Method: http.MethodPost, Path: "/execute"}},
+		OperationID: safeOperation.ID, Version: operationVersion.Version, Arguments: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	authorizationRepository := store.NewPostgreSQLAuthorizationRepository(database)
-	executions := store.NewPostgreSQLExecutionRepository(database)
-	vaultClient := &e2eVault{value: protectedValue}
-	httpProxy := proxy.NewHTTPProxy(executions, authorization.NewExecutionGuard(authorizationRepository), vaultClient, executions)
 	if _, err := httpProxy.Execute(ctx, requestRecord.ID, principal.AgentID, taskRecord.ID); !errors.Is(err, proxy.ErrExecutionDenied) {
 		t.Fatalf("unapproved execution error = %v", err)
 	}
@@ -123,7 +172,7 @@ func TestPostgreSQLEndToEndAuthorizationFlow(t *testing.T) {
 		t.Fatalf("unapproved calls: vault=%d target=%d", vaultClient.reads.Load(), targetCalls.Load())
 	}
 
-	approval, grant, err := authorization.NewApprovalService(authorizationRepository).Decide(
+	approval, grant, err := approvalService.Decide(
 		ctx, identity.User{ID: e2eOwnerID, OwnerActive: true}, requestRecord.ID, authorization.DecisionApproved, nil,
 	)
 	if err != nil || grant == nil {
@@ -187,5 +236,53 @@ WHERE g.id=$1`, grant.ID).Scan(&executionID, &reclaimID, &grantStatus, &executio
 	}
 	if fmt.Sprint(status) == protectedValue {
 		t.Fatal("status exposed protected value")
+	}
+
+	disabledOperationRequest, disabledOperationGrant := submitAndApprove("prove disabled operation revokes grants", operationVersion.Version)
+	if err := catalogService.SetOperationActive(ctx, admin, safeOperation.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	assertRevokedGrant(t, database, disabledOperationGrant.ID)
+	if _, err := httpProxy.Execute(ctx, disabledOperationRequest.ID, principal.AgentID, taskRecord.ID); !errors.Is(err, proxy.ErrExecutionDenied) {
+		t.Fatalf("disabled operation execution error = %v", err)
+	}
+	if vaultClient.reads.Load() != 1 || targetCalls.Load() != 1 {
+		t.Fatalf("disabled operation reached protected systems: vault=%d target=%d", vaultClient.reads.Load(), targetCalls.Load())
+	}
+	if err := catalogService.SetOperationActive(ctx, admin, safeOperation.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	staleBindingRequest, staleBindingGrant := submitAndApprove("prove binding version invalidates grants", operationVersion.Version)
+	secondVersion, err := catalogService.PublishOperationVersion(ctx, admin, safeOperation.ID, catalog.PublishOperationInput{
+		Name: "Execute demo v2", RiskLevel: catalog.RiskMedium,
+		ArgumentsSchema:   []byte(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`),
+		ExecutionTemplate: []byte(`{"kind":"HTTP","http":{"method":"POST","path":"/execute"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalogService.BindOperation(ctx, admin, targetRecord.ID, safeOperation.ID, secondVersion.Version, true); err != nil {
+		t.Fatal(err)
+	}
+	assertRevokedGrant(t, database, staleBindingGrant.ID)
+	if _, err := httpProxy.Execute(ctx, staleBindingRequest.ID, principal.AgentID, taskRecord.ID); !errors.Is(err, proxy.ErrExecutionDenied) {
+		t.Fatalf("stale binding execution error = %v", err)
+	}
+	if vaultClient.reads.Load() != 1 || targetCalls.Load() != 1 {
+		t.Fatalf("stale binding reached protected systems: vault=%d target=%d", vaultClient.reads.Load(), targetCalls.Load())
+	}
+}
+
+func assertRevokedGrant(t *testing.T, database *sql.DB, grantID string) {
+	t.Helper()
+	var status string
+	var claimedAt sql.NullTime
+	var revokedAt sql.NullTime
+	if err := database.QueryRow(`SELECT status,claimed_at,revoked_at FROM operation_grants WHERE id=$1`, grantID).Scan(&status, &claimedAt, &revokedAt); err != nil {
+		t.Fatal(err)
+	}
+	if status != "REVOKED" || claimedAt.Valid || !revokedAt.Valid {
+		t.Fatalf("grant %s status=%s claimed_at=%v revoked_at=%v", grantID, status, claimedAt, revokedAt)
 	}
 }

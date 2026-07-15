@@ -108,6 +108,21 @@ header h1 { margin: .2rem 0 0; font-size: 2rem; }
 .secondary { background: #2a3239; color: var(--text); }
 .toolbar { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .section-title { margin-top: 2rem; }
+.catalog-first-title { margin-top: 0; }
+.operation-catalog { margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: .5rem; }
+.operation-toolbar { align-items: end; }
+.operation-toolbar .section-title { margin-bottom: .35rem; }
+.operation-toolbar p { margin: 0; }
+.operation-sets { gap: 1.25rem; }
+.operation-set { padding: 1.4rem; }
+.operation-set h3, .operation-item h4 { margin: .45rem 0; overflow-wrap: anywhere; }
+.operation-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.operation-list { margin-top: 1.2rem; }
+.operation-item { border: 1px solid var(--line); border-radius: .4rem; padding: 1rem; background: #0d1013; }
+.operation-schema { max-height: 18rem; margin: .45rem 0 0; }
+.schema-label { margin: 1rem 0 0; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.version-list { margin-bottom: 0; font-size: .78rem; }
+.compact-empty { padding: 2rem 1rem; }
 .table-wrap { overflow: auto; border: 1px solid var(--line); }
 table { width: 100%; min-width: 42rem; border-collapse: collapse; }
 th, td { border-bottom: 1px solid var(--line); padding: .8rem; text-align: left; vertical-align: top; font-size: .82rem; overflow-wrap: anywhere; }
@@ -125,6 +140,6 @@ dialog pre { padding: 1rem; background: #090b0d; color: var(--accent); white-spa
   .identity { margin-top: 1rem; }
   .workspace { padding: 1rem; }
   .login-card { padding: 2rem; }
-  header, .toolbar { align-items: flex-start; flex-direction: column; }
+  header, .toolbar, .operation-heading { align-items: flex-start; flex-direction: column; }
   .status-pill { display: none; }
 }

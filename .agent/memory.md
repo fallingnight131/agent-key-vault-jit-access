@@ -36,7 +36,7 @@
 - 2026-07-15：任务 ID 由服务端生成 UUIDv7；心跳建议间隔 15 秒，Worker 在 45 秒边界原子转为 `AGENT_LOST` 并返回待回收任务，不修改 Agent Token。
 - 2026-07-15：目标连接配置使用 HTTP/PostgreSQL 强类型白名单，不接受认证头、URL userinfo 或账号字段；授权申请只提交 `target_id`，服务端解析活动默认凭证。
 - 2026-07-15：OpenBao 能力按进程拆为控制面仅写接口与执行面读取/Transit/动态签发/Lease 撤销接口；敏感值格式化恒为 `[REDACTED]` 且支持原地清零，动态签发失败绝不回退静态读取。
-- 2026-07-15：授权申请只接受 `task_id`、`target_id`、理由和强类型操作；服务端解析 `credential_id`，以确定性 JSON 对 Agent/任务/目标/凭证/操作整体做 SHA-256 快照，审批等待固定 30 分钟。
+- 2026-07-15：授权申请只接受 `task_id`、`target_id`、`operation_id`、精确版本、参数和理由；服务端从活动绑定解析凭证与私有模板，严格校验参数后冻结真实执行快照，并绑定 Agent/任务/目标配置版本/凭证/操作定义哈希。
 - 2026-07-15：审批服务只做权限/输入准备，最终竞争由仓储 `DecidePending` 单事务完成；批准同事务创建最长 10 分钟且绑定完整快照的 Grant，拒绝和过期不创建 Grant。
 - 2026-07-15：执行守卫只依赖单个 `ClaimApproved` 条件更新能力，完整匹配 Grant/Agent/任务/目标/凭证/操作哈希/期限后才返回；不具备 Vault 或连接器能力。
 - 2026-07-15：PostgreSQL 授权仓储用 serializable 事务原子写审批+Grant；占用用单条联结 `ACTIVE` task 的条件 `UPDATE ... RETURNING`，pgx v5 驱动和临时真实 PostgreSQL race 测试验证并发单赢家。
@@ -59,7 +59,8 @@
 - 2026-07-15：管理 API 忽略客户端 Vault 路径并按凭证 UUID 生成 KV/Transit/Database 引用；秘密以 base64 JSON 字节输入并在请求后清零，对外目录 DTO 仅含别名/类型/状态而无 Vault 引用。
 - 2026-07-15：Web 申请查询在 SQL 中按 Agent owner/APPROVE_ALL/管理员限定，返回冻结 operation、别名和非秘密风险提示；审批/撤销复用原子服务，人工关闭 incident 只变更告警状态且 Grant 保持 `RECLAIM_FAILED`。
 - 2026-07-15：人类工作台使用 Vue 3 + Vite；可维护工程位于根目录 `web/`，生产产物输出到 `internal/control/web/dist/`，再由 Go embed 与控制 API 同源交付；源码扫描禁止 `v-html`、浏览器持久化、直接 HTML 写入和 console，CSP 禁止外部脚本/对象/框架，Agent Token 只在可清零的一次性 dialog 状态中展示。
-- 2026-07-15：Agent 使用 Bearer Token 直连 control 与 execution HTTP API；Claude Code 由根目录 `CLAUDE.md` 约束 Token 注入、15 秒任务心跳、人工审批、执行选路和一次执行，目标源凭证仍只进入 execution proxy。
+- 2026-07-15：管理员以 HTTP/PostgreSQL/Sign 操作集复用安全子集，发布不可变操作版本并将精确版本绑定到目标；Agent 发现 API 只返回公开 Schema，不返回私有模板、凭证或 Vault 引用。
+- 2026-07-15：Agent 使用 Bearer Token 直连 control 与 execution HTTP API；Claude Code 由根目录 `CLAUDE.md` 约束 Token 注入、15 秒任务心跳、动态发现安全操作、人工审批和统一路由一次执行，目标源凭证仍只进入 execution proxy。
 - 2026-07-15：`make verify-all` 是完整交付门，包含静态检查、全包 race 和全新临时 PostgreSQL；E2E 不预置申请/Grant，贯通 Agent、任务、审批、代理、回收、拒绝重放与 actor 审计。
 - 2026-07-15：业务审计对申请/审批/主动撤销/拒绝 Claim 记录固定 USER/AGENT actor 和无敏感 metadata；唯一管理员可在 Web 查看最新 500 条全局审计。
 

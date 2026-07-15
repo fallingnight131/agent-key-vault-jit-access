@@ -66,6 +66,7 @@ func main() {
 	signProxy.SetCancellationRegistry(cancellations)
 	runtime := &proxy.Runtime{
 		Authenticator: agent.NewService(store.NewPostgreSQLAgentRepository(database)),
+		Plans:         executionRepository,
 		HTTP:          httpProxy,
 		PostgreSQL:    postgresqlProxy,
 		Sign:          signProxy,

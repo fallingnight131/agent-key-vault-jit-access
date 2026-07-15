@@ -16,6 +16,7 @@ import (
 	"github.com/fallingnight/akv/internal/agent"
 	"github.com/fallingnight/akv/internal/catalog"
 	"github.com/fallingnight/akv/internal/domain"
+	"github.com/fallingnight/akv/internal/operation"
 	"github.com/fallingnight/akv/internal/task"
 )
 
@@ -26,64 +27,48 @@ var (
 	ErrContextDenied  = errors.New("authorization context denied")
 )
 
-type OperationKind string
+type OperationKind = operation.OperationKind
+type HTTPParameters = operation.HTTPParameters
+type SQLStatement = operation.SQLStatement
+type PostgreSQLParameters = operation.PostgreSQLParameters
+type SignParameters = operation.SignParameters
+type Operation = operation.Operation
 
 const (
-	OperationHTTP                OperationKind = "HTTP"
-	OperationPostgreSQLStatement OperationKind = "POSTGRESQL_STATEMENT"
-	OperationPostgreSQLBatch     OperationKind = "POSTGRESQL_TRANSACTION"
-	OperationSign                OperationKind = "SIGN"
+	OperationHTTP                = operation.OperationHTTP
+	OperationPostgreSQLStatement = operation.OperationPostgreSQLStatement
+	OperationPostgreSQLBatch     = operation.OperationPostgreSQLBatch
+	OperationSign                = operation.OperationSign
 )
 
-type HTTPParameters struct {
-	Method  string              `json:"method"`
-	Path    string              `json:"path"`
-	Query   map[string][]string `json:"query,omitempty"`
-	Headers map[string]string   `json:"headers,omitempty"`
-	Body    []byte              `json:"body,omitempty"`
-}
-
-type SQLStatement struct {
-	SQL       string `json:"sql"`
-	Arguments []any  `json:"arguments,omitempty"`
-}
-
-type PostgreSQLParameters struct {
-	Statements []SQLStatement `json:"statements"`
-}
-
-type SignParameters struct {
-	DigestAlgorithm string `json:"digest_algorithm"`
-	Digest          []byte `json:"digest"`
-}
-
-type Operation struct {
-	Kind       OperationKind         `json:"kind"`
-	HTTP       *HTTPParameters       `json:"http,omitempty"`
-	PostgreSQL *PostgreSQLParameters `json:"postgresql,omitempty"`
-	Sign       *SignParameters       `json:"sign,omitempty"`
-}
-
 type SubmitInput struct {
-	TaskID    string    `json:"task_id"`
-	TargetID  string    `json:"target_id"`
-	Operation Operation `json:"operation"`
-	Reason    string    `json:"reason"`
+	TaskID      string          `json:"task_id"`
+	TargetID    string          `json:"target_id"`
+	OperationID string          `json:"operation_id"`
+	Version     int             `json:"version"`
+	Arguments   json.RawMessage `json:"arguments"`
+	Reason      string          `json:"reason"`
 }
 
 type Request struct {
-	ID                string
-	AgentID           string
-	TaskID            string
-	TargetID          string
-	CredentialID      string
-	OperationKind     OperationKind
-	OperationSnapshot []byte
-	OperationHash     [sha256.Size]byte
-	Reason            string
-	Status            domain.RequestStatus
-	CreatedAt         time.Time
-	ApprovalDeadline  time.Time
+	ID                  string
+	AgentID             string
+	TaskID              string
+	TargetID            string
+	CredentialID        string
+	RequestFormat       int
+	OperationID         string
+	OperationVersion    int
+	ArgumentsSnapshot   []byte
+	DefinitionHash      [sha256.Size]byte
+	TargetConfigVersion int
+	OperationKind       OperationKind
+	OperationSnapshot   []byte
+	OperationHash       [sha256.Size]byte
+	Reason              string
+	Status              domain.RequestStatus
+	CreatedAt           time.Time
+	ApprovalDeadline    time.Time
 }
 
 type TaskValidator interface {
@@ -91,7 +76,7 @@ type TaskValidator interface {
 }
 
 type CatalogResolver interface {
-	ResolveForRequest(context.Context, string) (catalog.Target, catalog.Credential, error)
+	ResolveOperationForRequest(context.Context, string, string, int) (catalog.ResolvedOperation, error)
 }
 
 type Repository interface {
@@ -112,24 +97,28 @@ func NewService(tasks TaskValidator, catalogResolver CatalogResolver, repository
 
 func (service *Service) Submit(ctx context.Context, principal agent.Principal, input SubmitInput) (Request, error) {
 	input.Reason = strings.TrimSpace(input.Reason)
-	if principal.AgentID == "" || input.TaskID == "" || input.TargetID == "" || input.Reason == "" {
+	if principal.AgentID == "" || input.TaskID == "" || input.TargetID == "" || input.OperationID == "" || input.Version <= 0 || len(input.Arguments) == 0 || input.Reason == "" {
 		return Request{}, ErrInvalidRequest
 	}
 	if _, err := service.tasks.ValidateActive(ctx, principal.AgentID, input.TaskID); err != nil {
 		return Request{}, ErrContextDenied
 	}
-	target, credential, err := service.catalog.ResolveForRequest(ctx, input.TargetID)
+	resolved, err := service.catalog.ResolveOperationForRequest(ctx, input.TargetID, input.OperationID, input.Version)
 	if err != nil {
 		return Request{}, ErrContextDenied
 	}
-	if err := validateOperation(target, credential, input.Operation); err != nil {
+	compiled, canonicalArguments, err := operation.Compile(resolved.Version.ArgumentsSchema, resolved.Version.ExecutionTemplate, input.Arguments)
+	if err != nil || string(compiled.Kind) != resolved.Version.Kind {
+		return Request{}, ErrInvalidRequest
+	}
+	if err := validateOperation(resolved.Target, resolved.Credential, compiled); err != nil {
 		return Request{}, err
 	}
-	operationSnapshot, err := json.Marshal(input.Operation)
+	operationSnapshot, err := json.Marshal(compiled)
 	if err != nil {
 		return Request{}, ErrInvalidRequest
 	}
-	operationHash, err := hashSnapshot(principal.AgentID, input.TaskID, target.ID, credential.ID, operationSnapshot)
+	operationHash, err := hashSnapshot(principal.AgentID, input.TaskID, resolved, canonicalArguments, operationSnapshot)
 	if err != nil {
 		return Request{}, fmt.Errorf("hash authorization snapshot: %w", err)
 	}
@@ -140,8 +129,11 @@ func (service *Service) Submit(ctx context.Context, principal agent.Principal, i
 	now := service.now()
 	request := Request{
 		ID: id, AgentID: principal.AgentID, TaskID: input.TaskID,
-		TargetID: target.ID, CredentialID: credential.ID,
-		OperationKind: input.Operation.Kind, OperationSnapshot: operationSnapshot,
+		TargetID: resolved.Target.ID, CredentialID: resolved.Credential.ID,
+		RequestFormat: 2, OperationID: resolved.Operation.ID, OperationVersion: resolved.Version.Version,
+		ArgumentsSnapshot: canonicalArguments, DefinitionHash: resolved.Version.DefinitionHash,
+		TargetConfigVersion: resolved.Target.ConfigVersion,
+		OperationKind:       compiled.Kind, OperationSnapshot: operationSnapshot,
 		OperationHash: operationHash, Reason: input.Reason,
 		Status: domain.RequestPendingApproval, CreatedAt: now, ApprovalDeadline: now.Add(ApprovalWait),
 	}
@@ -201,14 +193,24 @@ func validateOperation(target catalog.Target, credential catalog.Credential, ope
 	return nil
 }
 
-func hashSnapshot(agentID, taskID, targetID, credentialID string, operation []byte) ([sha256.Size]byte, error) {
+func hashSnapshot(agentID, taskID string, resolved catalog.ResolvedOperation, arguments, operationSnapshot []byte) ([sha256.Size]byte, error) {
 	encoded, err := json.Marshal(struct {
-		AgentID      string          `json:"agent_id"`
-		TaskID       string          `json:"task_id"`
-		TargetID     string          `json:"target_id"`
-		CredentialID string          `json:"credential_id"`
-		Operation    json.RawMessage `json:"operation"`
-	}{agentID, taskID, targetID, credentialID, operation})
+		AgentID             string          `json:"agent_id"`
+		TaskID              string          `json:"task_id"`
+		TargetID            string          `json:"target_id"`
+		TargetConfigVersion int             `json:"target_config_version"`
+		CredentialID        string          `json:"credential_id"`
+		OperationID         string          `json:"operation_id"`
+		OperationVersion    int             `json:"operation_version"`
+		DefinitionHash      []byte          `json:"definition_hash"`
+		Arguments           json.RawMessage `json:"arguments"`
+		Operation           json.RawMessage `json:"operation"`
+	}{
+		AgentID: agentID, TaskID: taskID, TargetID: resolved.Target.ID,
+		TargetConfigVersion: resolved.Target.ConfigVersion, CredentialID: resolved.Credential.ID,
+		OperationID: resolved.Operation.ID, OperationVersion: resolved.Version.Version,
+		DefinitionHash: resolved.Version.DefinitionHash[:], Arguments: arguments, Operation: operationSnapshot,
+	})
 	if err != nil {
 		return [sha256.Size]byte{}, err
 	}

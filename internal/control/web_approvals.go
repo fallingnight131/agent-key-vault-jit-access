@@ -21,7 +21,12 @@ type ApprovalView struct {
 	TargetName       string          `json:"target_name"`
 	CredentialAlias  string          `json:"credential_alias"`
 	CredentialType   string          `json:"credential_type"`
+	OperationID      string          `json:"operation_id,omitempty"`
+	OperationVersion int             `json:"version,omitempty"`
+	OperationKey     string          `json:"operation_key,omitempty"`
+	OperationName    string          `json:"operation_name,omitempty"`
 	OperationKind    string          `json:"operation_kind"`
+	Arguments        json.RawMessage `json:"arguments,omitempty"`
 	Operation        json.RawMessage `json:"operation"`
 	Reason           string          `json:"reason"`
 	Status           string          `json:"status"`
@@ -29,6 +34,7 @@ type ApprovalView struct {
 	ApprovalDeadline time.Time       `json:"approval_deadline"`
 	GrantExpiresAt   *time.Time      `json:"grant_expires_at,omitempty"`
 	RiskHint         string          `json:"risk_hint"`
+	RiskLevel        string          `json:"risk_level,omitempty"`
 }
 type AuditView struct {
 	ID          string            `json:"id"`

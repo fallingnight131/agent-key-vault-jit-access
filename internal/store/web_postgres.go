@@ -18,7 +18,7 @@ func NewPostgreSQLWebRepository(database *sql.DB) *PostgreSQLWebRepository {
 }
 
 func (repository *PostgreSQLWebRepository) ListAuthorizationRequests(ctx context.Context, actor identity.User) ([]control.ApprovalView, error) {
-	rows, err := repository.database.QueryContext(ctx, `SELECT r.id,r.agent_id,a.name,u.username,r.task_id,r.target_id,t.name,c.alias,c.credential_type,r.operation,r.parameters,r.reason,r.status,r.created_at,r.approval_deadline,g.expires_at,t.connector_type FROM authorization_requests r JOIN agents a ON a.id=r.agent_id JOIN users u ON u.id=a.owner_user_id JOIN targets t ON t.id=r.target_id JOIN credentials c ON c.id=r.credential_id LEFT JOIN operation_grants g ON g.request_id=r.id WHERE ($2 OR $3 OR a.owner_user_id=$1) ORDER BY (r.status='PENDING_APPROVAL') DESC,r.created_at DESC`, actor.ID, actor.IsAdmin, actor.ApproveAll)
+	rows, err := repository.database.QueryContext(ctx, `SELECT r.id,r.agent_id,a.name,u.username,r.task_id,r.target_id,t.name,c.alias,c.credential_type,COALESCE(r.operation_id::text,''),COALESCE(r.operation_version,0),COALESCE(o.operation_key,''),COALESCE(v.name,''),r.operation,COALESCE(r.arguments,'null'::jsonb),r.parameters,r.reason,r.status,r.created_at,r.approval_deadline,g.expires_at,t.connector_type,COALESCE(v.risk_level,'') FROM authorization_requests r JOIN agents a ON a.id=r.agent_id JOIN users u ON u.id=a.owner_user_id JOIN targets t ON t.id=r.target_id JOIN credentials c ON c.id=r.credential_id LEFT JOIN operations o ON o.id=r.operation_id LEFT JOIN operation_versions v ON v.operation_id=r.operation_id AND v.version=r.operation_version LEFT JOIN operation_grants g ON g.request_id=r.id WHERE ($2 OR $3 OR a.owner_user_id=$1) ORDER BY (r.status='PENDING_APPROVAL') DESC,r.created_at DESC`, actor.ID, actor.IsAdmin, actor.ApproveAll)
 	if err != nil {
 		return nil, err
 	}
@@ -26,17 +26,23 @@ func (repository *PostgreSQLWebRepository) ListAuthorizationRequests(ctx context
 	var records []control.ApprovalView
 	for rows.Next() {
 		var record control.ApprovalView
-		var operation []byte
+		var arguments, operation []byte
 		var expires sql.NullTime
 		var connector string
-		if err := rows.Scan(&record.RequestID, &record.AgentID, &record.AgentName, &record.OwnerUsername, &record.TaskID, &record.TargetID, &record.TargetName, &record.CredentialAlias, &record.CredentialType, &record.OperationKind, &operation, &record.Reason, &record.Status, &record.CreatedAt, &record.ApprovalDeadline, &expires, &connector); err != nil {
+		if err := rows.Scan(&record.RequestID, &record.AgentID, &record.AgentName, &record.OwnerUsername, &record.TaskID, &record.TargetID, &record.TargetName, &record.CredentialAlias, &record.CredentialType, &record.OperationID, &record.OperationVersion, &record.OperationKey, &record.OperationName, &record.OperationKind, &arguments, &operation, &record.Reason, &record.Status, &record.CreatedAt, &record.ApprovalDeadline, &expires, &connector, &record.RiskLevel); err != nil {
 			return nil, err
 		}
 		record.Operation = append(json.RawMessage(nil), operation...)
+		if record.OperationID != "" {
+			record.Arguments = append(json.RawMessage(nil), arguments...)
+		}
 		if expires.Valid {
 			record.GrantExpiresAt = &expires.Time
 		}
 		record.RiskHint = riskHint(connector, record.OperationKind)
+		if record.RiskLevel != "" {
+			record.RiskHint = record.RiskLevel + ": " + record.RiskHint
+		}
 		records = append(records, record)
 	}
 	return records, rows.Err()

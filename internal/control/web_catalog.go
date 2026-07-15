@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/fallingnight/akv/internal/catalog"
@@ -11,11 +12,18 @@ import (
 
 type WebCatalogManager interface {
 	ListCatalog(context.Context, identity.User) ([]catalog.Target, []catalog.Credential, error)
+	ListOperationCatalog(context.Context, identity.User) (catalog.OperationCatalog, error)
 	ProvisionTarget(context.Context, identity.User, catalog.ProvisionInput) (catalog.Target, catalog.Credential, error)
 	UpdateTarget(context.Context, identity.User, string, string, catalog.ConnectionConfig) error
 	SetTargetActive(context.Context, identity.User, string, bool) error
 	SetCredentialActive(context.Context, identity.User, string, bool) error
 	UpdateCredential(context.Context, identity.User, string, catalog.CredentialUpdate) error
+	CreateOperationSet(context.Context, identity.User, catalog.CreateOperationSetInput) (catalog.OperationSet, error)
+	CreateOperation(context.Context, identity.User, string, catalog.PublishOperationInput) (catalog.SafeOperation, catalog.OperationVersion, error)
+	PublishOperationVersion(context.Context, identity.User, string, catalog.PublishOperationInput) (catalog.OperationVersion, error)
+	SetOperationSetActive(context.Context, identity.User, string, bool) error
+	SetOperationActive(context.Context, identity.User, string, bool) error
+	BindOperation(context.Context, identity.User, string, string, int, bool) (catalog.TargetOperationBinding, error)
 }
 
 func (runtime *WebRuntime) listCatalog(response http.ResponseWriter, request *http.Request) {
@@ -36,7 +44,16 @@ func (runtime *WebRuntime) listCatalog(response http.ResponseWriter, request *ht
 	for _, credential := range credentials {
 		credentialResult = append(credentialResult, credentialDTOWithoutSecret(credential))
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"targets": targetResult, "credentials": credentialResult})
+	operationCatalog, err := runtime.Catalog.ListOperationCatalog(request.Context(), actor)
+	if err != nil {
+		writeJSON(response, http.StatusForbidden, map[string]string{"error": "FORBIDDEN"})
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{
+		"targets": targetResult, "credentials": credentialResult,
+		"operation_sets": operationCatalog.Sets, "operations": operationCatalog.Operations,
+		"operation_versions": operationCatalog.Versions, "operation_bindings": operationCatalog.Bindings,
+	})
 }
 
 type catalogWriteInput struct {
@@ -135,6 +152,134 @@ func (runtime *WebRuntime) updateCredential(response http.ResponseWriter, reques
 	response.WriteHeader(http.StatusNoContent)
 }
 
+func (runtime *WebRuntime) createOperationSet(response http.ResponseWriter, request *http.Request) {
+	actor, ok := runtime.authorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		Name         string               `json:"name"`
+		Description  string               `json:"description"`
+		ExecutorType catalog.ExecutorType `json:"executor_type"`
+	}
+	if !decodeStrict(response, request, &input) {
+		return
+	}
+	set, err := runtime.Catalog.CreateOperationSet(request.Context(), actor, catalog.CreateOperationSetInput{Name: input.Name, Description: input.Description, ExecutorType: input.ExecutorType})
+	if err != nil {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_OPERATION_SET"})
+		return
+	}
+	writeJSON(response, http.StatusCreated, set)
+}
+
+type operationVersionInput struct {
+	Key               string            `json:"key,omitempty"`
+	Name              string            `json:"name"`
+	Description       string            `json:"description"`
+	RiskLevel         catalog.RiskLevel `json:"risk_level"`
+	ArgumentsSchema   json.RawMessage   `json:"arguments_schema"`
+	ExecutionTemplate json.RawMessage   `json:"execution_template"`
+}
+
+func (input operationVersionInput) catalogInput() catalog.PublishOperationInput {
+	return catalog.PublishOperationInput{Key: input.Key, Name: input.Name, Description: input.Description, RiskLevel: input.RiskLevel, ArgumentsSchema: input.ArgumentsSchema, ExecutionTemplate: input.ExecutionTemplate}
+}
+
+func (runtime *WebRuntime) createOperation(response http.ResponseWriter, request *http.Request) {
+	actor, ok := runtime.authorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	var input operationVersionInput
+	if !decodeStrict(response, request, &input) {
+		return
+	}
+	item, version, err := runtime.Catalog.CreateOperation(request.Context(), actor, request.PathValue("set_id"), input.catalogInput())
+	if err != nil {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_OPERATION"})
+		return
+	}
+	writeJSON(response, http.StatusCreated, map[string]any{"operation": item, "version": version})
+}
+
+func (runtime *WebRuntime) publishOperationVersion(response http.ResponseWriter, request *http.Request) {
+	actor, ok := runtime.authorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	var input operationVersionInput
+	if !decodeStrict(response, request, &input) {
+		return
+	}
+	if input.Key != "" {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_OPERATION"})
+		return
+	}
+	version, err := runtime.Catalog.PublishOperationVersion(request.Context(), actor, request.PathValue("operation_id"), input.catalogInput())
+	if err != nil {
+		writeJSON(response, http.StatusConflict, map[string]string{"error": "OPERATION_VERSION_CONFLICT"})
+		return
+	}
+	writeJSON(response, http.StatusCreated, version)
+}
+
+func (runtime *WebRuntime) setOperationSetActive(response http.ResponseWriter, request *http.Request) {
+	actor, ok := runtime.authorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		Active bool `json:"active"`
+	}
+	if !decodeStrict(response, request, &input) {
+		return
+	}
+	if err := runtime.Catalog.SetOperationSetActive(request.Context(), actor, request.PathValue("set_id"), input.Active); err != nil {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_REQUEST"})
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (runtime *WebRuntime) setOperationActive(response http.ResponseWriter, request *http.Request) {
+	actor, ok := runtime.authorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		Active bool `json:"active"`
+	}
+	if !decodeStrict(response, request, &input) {
+		return
+	}
+	if err := runtime.Catalog.SetOperationActive(request.Context(), actor, request.PathValue("operation_id"), input.Active); err != nil {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_REQUEST"})
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (runtime *WebRuntime) bindOperation(response http.ResponseWriter, request *http.Request) {
+	actor, ok := runtime.authorizeMutation(response, request)
+	if !ok {
+		return
+	}
+	var input struct {
+		Version int  `json:"version"`
+		Active  bool `json:"active"`
+	}
+	if !decodeStrict(response, request, &input) {
+		return
+	}
+	binding, err := runtime.Catalog.BindOperation(request.Context(), actor, request.PathValue("target_id"), request.PathValue("operation_id"), input.Version, input.Active)
+	if err != nil {
+		writeJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_OPERATION_BINDING"})
+		return
+	}
+	writeJSON(response, http.StatusOK, binding)
+}
+
 func sensitiveValues(raw map[string][]byte) map[string]*vault.SensitiveValue {
 	values := make(map[string]*vault.SensitiveValue, len(raw))
 	for name, value := range raw {
@@ -155,7 +300,7 @@ func destroySensitiveValues(values map[string]*vault.SensitiveValue) {
 	}
 }
 func targetDTO(target catalog.Target) map[string]any {
-	return map[string]any{"id": target.ID, "name": target.Name, "description": target.Description, "connector_type": target.ConnectorType, "connection_config": target.ConnectionConfig, "active": target.Active, "default_credential_id": target.DefaultCredentialID}
+	return map[string]any{"id": target.ID, "name": target.Name, "description": target.Description, "connector_type": target.ConnectorType, "connection_config": target.ConnectionConfig, "config_version": target.ConfigVersion, "active": target.Active, "default_credential_id": target.DefaultCredentialID}
 }
 func credentialDTOWithoutSecret(credential catalog.Credential) map[string]any {
 	return map[string]any{"id": credential.ID, "target_id": credential.TargetID, "alias": credential.Alias, "credential_type": credential.Type, "active": credential.Active}

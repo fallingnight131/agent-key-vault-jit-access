@@ -99,12 +99,18 @@ onMounted(load)
         <dt>Agent ID</dt><dd>{{ record.agent_id }}</dd>
         <dt>任务</dt><dd>{{ record.task_id }}</dd>
         <dt>凭证</dt><dd>{{ record.credential_alias }} · {{ record.credential_type }}</dd>
+        <template v-if="record.operation_id">
+          <dt>安全操作</dt><dd>{{ record.operation_name }}（{{ record.operation_key }}）</dd>
+          <dt>操作版本</dt><dd>{{ record.operation_id }} · v{{ record.version }}</dd>
+          <dt>业务参数</dt><dd><pre class="operation">{{ prettyJSON(record.arguments) }}</pre></dd>
+        </template>
         <dt>原因</dt><dd>{{ record.reason }}</dd>
         <dt>申请截止</dt><dd>{{ formatDate(record.approval_deadline) }}</dd>
         <dt>授权有效期</dt>
         <dd>{{ record.grant_expires_at ? formatDate(record.grant_expires_at) : '批准后最长 10 分钟内必须开始' }}</dd>
       </dl>
       <p class="risk">{{ record.risk_hint }}</p>
+      <p class="muted">AKV 根据已发布模板编译并冻结的实际执行效果：</p>
       <pre class="operation">{{ prettyJSON(record.operation) }}</pre>
       <div class="actions">
         <template v-if="record.status === 'PENDING_APPROVAL'">

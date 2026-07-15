@@ -57,6 +57,12 @@ func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
 		mux.HandleFunc("POST /v1/web/targets", runtime.createTarget)
 		mux.HandleFunc("PATCH /v1/web/targets/{target_id}", runtime.updateTarget)
 		mux.HandleFunc("PATCH /v1/web/credentials/{credential_id}", runtime.updateCredential)
+		mux.HandleFunc("POST /v1/web/operation-sets", runtime.createOperationSet)
+		mux.HandleFunc("PATCH /v1/web/operation-sets/{set_id}", runtime.setOperationSetActive)
+		mux.HandleFunc("POST /v1/web/operation-sets/{set_id}/operations", runtime.createOperation)
+		mux.HandleFunc("POST /v1/web/operations/{operation_id}/versions", runtime.publishOperationVersion)
+		mux.HandleFunc("PATCH /v1/web/operations/{operation_id}", runtime.setOperationActive)
+		mux.HandleFunc("PUT /v1/web/targets/{target_id}/operations/{operation_id}", runtime.bindOperation)
 	}
 	if runtime.ApprovalReader != nil && runtime.Approvals != nil && runtime.Revocations != nil {
 		mux.HandleFunc("GET /v1/web/authorizations", runtime.listAuthorizations)

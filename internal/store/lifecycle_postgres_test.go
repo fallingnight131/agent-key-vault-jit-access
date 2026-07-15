@@ -42,9 +42,7 @@ func TestPostgreSQLLifecycleSweepAndRevoke(t *testing.T) {
 	const executingRequest = "00000000-0000-4000-8000-000000000023"
 	const executingGrant = "00000000-0000-4000-8000-000000000024"
 	now := time.Now().UTC()
-	if _, err := database.Exec(`INSERT INTO authorization_requests (id,agent_id,task_id,target_id,credential_id,operation,parameters,operation_hash,reason,status,created_at,approval_deadline) VALUES ($1,$2,$3,$4,$5,'HTTP','{}',$6,'fixture','APPROVED',$7,$8)`, executingRequest, testAgentID, testTaskID, testTargetID, testCredentialID, testOperationHash[:], now, now.Add(30*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
+	insertSafeAuthorizationRequest(t, database, executingRequest, testTaskID, "APPROVED", now, now.Add(30*time.Minute))
 	if _, err := database.Exec(`INSERT INTO operation_grants (id,request_id,agent_id,task_id,target_id,credential_id,operation_hash,approved_at,expires_at,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'APPROVED')`, executingGrant, executingRequest, testAgentID, testTaskID, testTargetID, testCredentialID, testOperationHash[:], now, now.Add(10*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -80,13 +78,8 @@ func TestPostgreSQLLifecycleSweepAndRevoke(t *testing.T) {
 	const expiredRequest = "00000000-0000-4000-8000-000000000020"
 	const expiredGrantRequest = "00000000-0000-4000-8000-000000000021"
 	const expiredGrant = "00000000-0000-4000-8000-000000000022"
-	insertRequest := `INSERT INTO authorization_requests (id,agent_id,task_id,target_id,credential_id,operation,parameters,operation_hash,reason,status,created_at,approval_deadline) VALUES ($1,$2,$3,$4,$5,'HTTP','{}',$6,'fixture',$7,$8,$9)`
-	if _, err := database.Exec(insertRequest, expiredRequest, testAgentID, testTaskID, testTargetID, testCredentialID, testOperationHash[:], "PENDING_APPROVAL", created, now.Add(-time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(insertRequest, expiredGrantRequest, testAgentID, testTaskID, testTargetID, testCredentialID, testOperationHash[:], "APPROVED", created, created.Add(30*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
+	insertSafeAuthorizationRequest(t, database, expiredRequest, testTaskID, "PENDING_APPROVAL", created, now.Add(-time.Minute))
+	insertSafeAuthorizationRequest(t, database, expiredGrantRequest, testTaskID, "APPROVED", created, created.Add(30*time.Minute))
 	if _, err := database.Exec(`INSERT INTO operation_grants (id,request_id,agent_id,task_id,target_id,credential_id,operation_hash,approved_at,expires_at,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'APPROVED')`, expiredGrant, expiredGrantRequest, testAgentID, testTaskID, testTargetID, testCredentialID, testOperationHash[:], created, created.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -133,9 +126,7 @@ func TestPostgreSQLTaskEndRevokesUnfinishedGrant(t *testing.T) {
 	const requestID = "00000000-0000-4000-8000-000000000030"
 	const grantID = "00000000-0000-4000-8000-000000000031"
 	now := time.Now().UTC()
-	if _, err := database.Exec(`INSERT INTO authorization_requests (id,agent_id,task_id,target_id,credential_id,operation,parameters,operation_hash,reason,status,created_at,approval_deadline) VALUES ($1,$2,$3,$4,$5,'HTTP','{}',$6,'fixture','APPROVED',$7,$8)`, requestID, testAgentID, record.ID, testTargetID, testCredentialID, testOperationHash[:], now, now.Add(30*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
+	insertSafeAuthorizationRequest(t, database, requestID, record.ID, "APPROVED", now, now.Add(30*time.Minute))
 	if _, err := database.Exec(`INSERT INTO operation_grants (id,request_id,agent_id,task_id,target_id,credential_id,operation_hash,approved_at,expires_at,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'APPROVED')`, grantID, requestID, testAgentID, record.ID, testTargetID, testCredentialID, testOperationHash[:], now, now.Add(10*time.Minute)); err != nil {
 		t.Fatal(err)
 	}

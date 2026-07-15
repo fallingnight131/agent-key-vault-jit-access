@@ -30,6 +30,9 @@ type apiTargets struct{}
 func (apiTargets) Discover(context.Context, string) ([]catalog.Target, error) {
 	return []catalog.Target{{ID: "target", Name: "tickets", Description: "safe", ConnectorType: catalog.ConnectorHTTP, DefaultCredentialID: "must-not-leak", ConnectionConfig: catalog.ConnectionConfig{BaseURL: "https://internal.example", AllowedHTTPMethods: []string{"POST"}}}}, nil
 }
+func (apiTargets) DiscoverOperations(context.Context, string, string) ([]catalog.PublicOperation, error) {
+	return []catalog.PublicOperation{{OperationID: "operation", Version: 3, TargetID: "target", Key: "create_ticket", Name: "Create ticket", Description: "safe public description", Kind: "HTTP", RiskLevel: catalog.RiskMedium, ArgumentsSchema: []byte(`{"type":"object","properties":{},"required":[],"additionalProperties":false}`)}}, nil
+}
 
 type apiTasks struct{}
 
@@ -118,10 +121,40 @@ func TestAgentTargetsDTOExcludesInternalCredentialAndConnection(t *testing.T) {
 	}
 }
 
+func TestAgentOperationDiscoveryReturnsOnlyPublicSchema(t *testing.T) {
+	server := testAgentServer(&apiAuthorizations{})
+	request := httptest.NewRequest(http.MethodGet, "/v1/agent/targets/target/operations", nil)
+	request.Header.Set("Authorization", "Bearer fixture-token")
+	response := httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, `"operation_id":"operation"`) || !strings.Contains(body, `"version":3`) || !strings.Contains(body, `"arguments_schema"`) {
+		t.Fatalf("status=%d body=%q", response.Code, body)
+	}
+	for _, forbidden := range []string{"execution_template", "SELECT ", "internal.example", "credential", "vault"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("operation discovery leaked %q in %q", forbidden, body)
+		}
+	}
+}
+
 func TestAuthorizationRequestRejectsCredentialAndTargetBypassFields(t *testing.T) {
 	authorizations := &apiAuthorizations{}
 	server := testAgentServer(authorizations)
 	body := `{"task_id":"task","target_id":"target","credential_id":"attacker","operation":{"kind":"HTTP","http":{"method":"POST","path":"/"}},"reason":"fixture"}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/agent/authorizations", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer fixture-token")
+	response := httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || authorizations.calls != 0 {
+		t.Fatalf("status=%d calls=%d body=%q", response.Code, authorizations.calls, response.Body.String())
+	}
+}
+
+func TestAuthorizationRequestRejectsLegacyRawOperation(t *testing.T) {
+	authorizations := &apiAuthorizations{}
+	server := testAgentServer(authorizations)
+	body := `{"task_id":"task","target_id":"target","operation":{"kind":"POSTGRESQL_STATEMENT","postgresql":{"statements":[{"sql":"SELECT 1"}]}},"reason":"fixture"}`
 	request := httptest.NewRequest(http.MethodPost, "/v1/agent/authorizations", strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer fixture-token")
 	response := httptest.NewRecorder()
@@ -190,7 +223,7 @@ func TestAgentBearerAPILifecycleDoesNotEchoToken(t *testing.T) {
 	if response := call(http.MethodPost, "/v1/agent/tasks/task/heartbeat", `{}`); response.Code != http.StatusNoContent {
 		t.Fatalf("heartbeat status=%d body=%q", response.Code, response.Body.String())
 	}
-	input := `{"task_id":"task","target_id":"target","operation":{"kind":"HTTP","http":{"method":"POST","path":"/tickets"}},"reason":"direct API fixture"}`
+	input := `{"task_id":"task","target_id":"target","operation_id":"operation","version":1,"arguments":{},"reason":"direct API fixture"}`
 	if response := call(http.MethodPost, "/v1/agent/authorizations", input); response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"request_id":"request"`) {
 		t.Fatalf("authorization status=%d body=%q", response.Code, response.Body.String())
 	}
@@ -212,7 +245,7 @@ func TestAgentBearerAPILifecycleDoesNotEchoToken(t *testing.T) {
 	if tasks.heartbeats != 1 || !tasks.ended || tasks.outcome != domain.TaskCompleted {
 		t.Fatalf("task lifecycle heartbeats=%d ended=%t outcome=%s", tasks.heartbeats, tasks.ended, tasks.outcome)
 	}
-	if authorizations.calls != 1 || authorizations.input.TaskID != "task" || authorizations.input.TargetID != "target" {
+	if authorizations.calls != 1 || authorizations.input.TaskID != "task" || authorizations.input.TargetID != "target" || authorizations.input.OperationID != "operation" || authorizations.input.Version != 1 {
 		t.Fatalf("authorization calls=%d input=%+v", authorizations.calls, authorizations.input)
 	}
 	if exposed := responses.String() + logs.String(); strings.Contains(exposed, token) {
@@ -221,6 +254,6 @@ func TestAgentBearerAPILifecycleDoesNotEchoToken(t *testing.T) {
 }
 
 func testAgentServer(authorizations *apiAuthorizations) *http.Server {
-	runtime := &AgentRuntime{Authenticator: apiAuthenticator{}, Targets: apiTargets{}, Tasks: apiTasks{}, Authorizations: authorizations, Statuses: apiStatuses{}}
+	runtime := &AgentRuntime{Authenticator: apiAuthenticator{}, Targets: apiTargets{}, Operations: apiTargets{}, Tasks: apiTasks{}, Authorizations: authorizations, Statuses: apiStatuses{}}
 	return NewServer(Config{ListenAddress: "127.0.0.1:0"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), runtime, nil)
 }
