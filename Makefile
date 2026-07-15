@@ -1,4 +1,4 @@
-.PHONY: fmt-check test vet verify
+.PHONY: fmt-check test test-migrations-postgres vet verify
 
 GOCACHE ?= /tmp/akv-go-cache
 export GOCACHE
@@ -8,6 +8,9 @@ fmt-check:
 
 test:
 	go test ./...
+
+test-migrations-postgres:
+	./scripts/test-migrations-postgres.sh
 
 vet:
 	go vet ./...
