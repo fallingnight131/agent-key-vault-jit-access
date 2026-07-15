@@ -8,12 +8,15 @@ import (
 )
 
 // NewServer creates the HTTP boundary for the control plane.
-func NewServer(config Config, logger *slog.Logger) *http.Server {
+func NewServer(config Config, logger *slog.Logger, runtime *AgentRuntime) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(response http.ResponseWriter, _ *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(map[string]string{"status": "ok"})
 	})
+	if runtime != nil {
+		runtime.Register(mux)
+	}
 
 	return &http.Server{
 		Addr:              config.ListenAddress,

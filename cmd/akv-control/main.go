@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -10,7 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fallingnight/akv/internal/agent"
+	"github.com/fallingnight/akv/internal/authorization"
+	"github.com/fallingnight/akv/internal/catalog"
 	"github.com/fallingnight/akv/internal/control"
+	"github.com/fallingnight/akv/internal/proxy"
+	"github.com/fallingnight/akv/internal/store"
+	"github.com/fallingnight/akv/internal/task"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -21,7 +29,40 @@ func main() {
 		os.Exit(2)
 	}
 
-	server := control.NewServer(config, logger)
+	dsn, err := proxy.ReadProtectedConfigFile(os.Getenv("AKV_DATABASE_DSN_FILE"))
+	if err != nil {
+		logger.Error("invalid database configuration", "error", err)
+		os.Exit(2)
+	}
+	database, err := sql.Open("pgx", string(dsn))
+	for index := range dsn {
+		dsn[index] = 0
+	}
+	if err != nil {
+		logger.Error("database unavailable")
+		os.Exit(1)
+	}
+	pingContext, cancelPing := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelPing()
+	if err := database.PingContext(pingContext); err != nil {
+		logger.Error("database unavailable")
+		os.Exit(1)
+	}
+	defer database.Close()
+	if err := store.Migrate(context.Background(), store.NewPostgreSQLMigrationStore(database)); err != nil {
+		logger.Error("database migration failed", "error", err)
+		os.Exit(1)
+	}
+	agentService := agent.NewService(store.NewPostgreSQLAgentRepository(database))
+	catalogService := catalog.NewService(store.NewPostgreSQLCatalogRepository(database))
+	taskService := task.NewService(store.NewPostgreSQLTaskRepository(database))
+	requestRepository := store.NewPostgreSQLRequestRepository(database)
+	runtime := &control.AgentRuntime{
+		Authenticator: agentService, Targets: catalogService, Tasks: taskService,
+		Authorizations: authorization.NewService(taskService, catalogService, requestRepository),
+		Statuses:       requestRepository,
+	}
+	server := control.NewServer(config, logger, runtime)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

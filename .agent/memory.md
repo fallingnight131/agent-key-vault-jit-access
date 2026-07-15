@@ -51,6 +51,7 @@
 - 2026-07-15：execution-proxy 每秒轮询已撤销 EXECUTING Grant，用进程内 registry 取消活动 context；HTTP/PG/Sign 映射为 `CANCELLED` 后仍回收，正常 end_task 同事务撤销未完成 Grant。
 - 2026-07-15：业务状态触发器写入仅含状态码的关联审计，应用审计 metadata 为严格白名单；Worker 按 1000 条批次实际删除 180 天前事件。
 - 2026-07-15：动态执行只额外持久化不可返回的 OpenBao Lease 引用；Worker 按操作超时恢复卡死执行，`RECLAIM_FAILED` 可重试但 Grant 不恢复，成功后关闭既有 incident。
+- 2026-07-15：控制服务从 `0600` DSN 文件连接并迁移 PostgreSQL；Agent API 仅以 Bearer Token 认证，对外 DTO 排除默认凭证、Vault 引用和内部连接地址，申请状态按 Agent 所有权查询。
 
 ## Agent 维护区
 

@@ -65,10 +65,10 @@ type Operation struct {
 }
 
 type SubmitInput struct {
-	TaskID    string
-	TargetID  string
-	Operation Operation
-	Reason    string
+	TaskID    string    `json:"task_id"`
+	TargetID  string    `json:"target_id"`
+	Operation Operation `json:"operation"`
+	Reason    string    `json:"reason"`
 }
 
 type Request struct {

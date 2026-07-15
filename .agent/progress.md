@@ -1,11 +1,12 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.a`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.b`
 
 ## 恢复点
 
 - 回收、撤销、超时、取消、审计、180 天清理及崩溃 Lease 恢复均已通过真实 PostgreSQL 验证。
-- 下一轮 `AKV-008.a` 实现控制面 PostgreSQL 仓储装配和 Agent Bearer API：目标发现、begin/heartbeat/end task、申请与状态查询。
+- Agent Bearer API 已装配 PostgreSQL，覆盖目标发现、begin/heartbeat/end task、申请与所有权隔离的状态查询。
+- 下一轮 `AKV-008.b` 实现人类登录/Session 的 PostgreSQL 仓储与 Web 认证边界。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
 
 ## 当前工作项
@@ -13,11 +14,11 @@
 下一最小切片：
 
 ```text
-ID / 目标：AKV-008.a / 实现 Agent 控制 API
-验收条件：Bearer 认证；list_targets/begin_task/heartbeat/end_task/request_authorization/get_status；严格 JSON；响应无秘密；真实 PG 集成；make verify 通过
-修改范围：控制面仓储与服务装配、HTTP handler、API DTO/测试、memory/progress
-验证命令：make verify
-风险 / 下一步：API DTO 必须与内部记录分离，禁止默认 JSON 序列化内部结构
+ID / 目标：AKV-008.b / 实现人类 Web 认证边界
+验收条件：密码登录；Session Cookie 仅存哈希、HttpOnly/SameSite/secure 配置；登出立即撤销；停用用户默认拒绝；CSRF 保护；真实 PG 集成；make verify 通过
+修改范围：身份 PostgreSQL 仓储、Web Session middleware/handler、配置与测试、memory/progress
+验证命令：make verify；make test-migrations-postgres
+风险 / 下一步：Cookie 原值不得进入日志或业务库，所有状态变更路由必须验证 CSRF
 ```
 
 ## 队列
@@ -43,11 +44,10 @@ ID / 目标：AKV-008.a / 实现 Agent 控制 API
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、生命周期/代理/仓储 race、`git diff --check` 和 `make test-migrations-postgres` 通过；崩溃 Lease 回收失败/重试/incident 关闭已验证。
+- 2026-07-15：`make verify`、`git diff --check` 和 `make test-migrations-postgres` 通过；Agent Token→目标→任务→申请→状态→结束的真实 PostgreSQL 链路已验证。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-006.b`：实现参数化 PG 单语句/事务、超时回滚和动态凭证无降级 Lease 生命周期｜下一步 `AKV-006.c`｜计划提交 `feat(proxy): execute guarded PostgreSQL operations`
 - 2026-07-15｜`AKV-006.c`：实现先占用的 Transit 摘要签名且无私钥读取路径｜下一步 `AKV-006.d`｜计划提交 `feat(proxy): execute guarded Transit signatures`
 - 2026-07-15｜`AKV-006.d`：持久化冻结计划与 Execution 终态并建立独立执行进程｜下一步 `AKV-006.e`｜计划提交 `feat(store): persist execution lifecycle`
 - 2026-07-15｜`AKV-006.e`：实现 0600 Token OpenBao 执行客户端与结构化 pgx 目标工厂｜下一步 `AKV-006.f`｜计划提交 `feat(proxy): add real execution adapters`
@@ -57,6 +57,7 @@ ID / 目标：AKV-008.a / 实现 Agent 控制 API
 - 2026-07-15｜`AKV-007.c`：投递执行取消 context 并让 end_task 撤销未完成 Grant｜下一步 `AKV-007.d`｜计划提交 `feat(proxy): deliver execution cancellation`
 - 2026-07-15｜`AKV-007.d`：实现状态触发审计、关联链与 180 天限量实际清理｜下一步 `AKV-007.e`｜计划提交 `feat(audit): persist safe lifecycle events`
 - 2026-07-15｜`AKV-007.e`：持久化 Lease 并恢复超时/失败回收直至关闭 incident｜下一步 `AKV-008.a`｜计划提交 `feat(worker): recover interrupted executions`
+- 2026-07-15｜`AKV-008.a`：装配无秘密 DTO 的 Agent Bearer 控制 API 与真实 PG 链路｜下一步 `AKV-008.b`｜计划提交 `feat(control): expose agent control API`
 
 ## MVP 验收
 
