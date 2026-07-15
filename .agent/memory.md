@@ -53,6 +53,7 @@
 - 2026-07-15：动态执行只额外持久化不可返回的 OpenBao Lease 引用；Worker 按操作超时恢复卡死执行，`RECLAIM_FAILED` 可重试但 Grant 不恢复，成功后关闭既有 incident。
 - 2026-07-15：控制服务从 `0600` DSN 文件连接并迁移 PostgreSQL；Agent API 仅以 Bearer Token 认证，对外 DTO 排除默认凭证、Vault 引用和内部连接地址，申请状态按 Agent 所有权查询。
 - 2026-07-15：Web Session 固定 8 小时，业务库只存 SHA-256 哈希；Session Cookie 为 HttpOnly + SameSite=Strict，HTTPS 公开源默认 Secure，变更路由同时校验 Origin 和可读 CSRF Cookie/请求头。
+- 2026-07-15：Web 用户只能列出和变更 owner 匹配的 Agent；Agent Token 只在注册/轮换响应返回一次，列表仅含过期时间；已撤销 Token 可在行锁保护下重新生成。
 
 ## Agent 维护区
 

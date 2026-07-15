@@ -50,6 +50,13 @@ func (repository *fakeRepository) SetAgentActive(_ context.Context, ownerID, age
 	return nil
 }
 
+func (repository *fakeRepository) ListOwnedAgents(_ context.Context, ownerID string) ([]View, error) {
+	if repository.agent.OwnerUserID != ownerID {
+		return nil, nil
+	}
+	return []View{{ID: repository.agent.ID, Name: repository.agent.Name, Active: repository.agent.Active, CreatedAt: repository.agent.CreatedAt, TokenExpiresAt: repository.token.ExpiresAt}}, nil
+}
+
 func TestRegisterTokenLifetimesAndHashes(t *testing.T) {
 	tests := []struct {
 		lifetime  TokenLifetime

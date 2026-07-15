@@ -1,13 +1,14 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.c`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.d`
 
 ## 恢复点
 
 - 回收、撤销、超时、取消、审计、180 天清理及崩溃 Lease 恢复均已通过真实 PostgreSQL 验证。
 - Agent Bearer API 已装配 PostgreSQL，覆盖目标发现、begin/heartbeat/end task、申请与所有权隔离的状态查询。
 - 人类登录/Session 已持久化；Cookie 使用 HttpOnly/SameSite 且 HTTPS 默认 Secure，状态变更校验同源与双提交 CSRF。
-- 下一轮 `AKV-008.c` 实现管理员用户/Agent 管理 API 及初始管理员启动方式。
+- Web 已支持列表、注册、轮换/撤销 Token 和启停自有 Agent；Token 只在注册/轮换当次返回。
+- 下一轮 `AKV-008.d` 实现初始管理员安全启动与已有用户的停用/`APPROVE_ALL` 管理（不实现需求排除的账号开通/改密）。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
 
 ## 当前工作项
@@ -15,11 +16,11 @@
 下一最小切片：
 
 ```text
-ID / 目标：AKV-008.c / 实现 Web 用户与 Agent 管理
-验收条件：可重复且仅首次成功的管理员启动；管理员管理用户与 APPROVE_ALL；用户管理自有 Agent/Token；Token 仅创建/轮换当次返回；权限与 CSRF 默认拒绝；真实 PG 集成
-修改范围：用户/Agent 查询与变更仓储、Web API、启动命令、测试、memory/progress
+ID / 目标：AKV-008.d / 实现管理员启动与用户权限管理
+验收条件：安全交互输入密码的一次性 bootstrap；唯一管理员不变式；管理员列出已有用户、停用/启用、授予/撤销 APPROVE_ALL；禁止停用唯一管理员；权限/CSRF 默认拒绝；真实 PG 集成
+修改范围：用户查询/变更仓储、Web API、bootstrap 命令、测试、memory/progress
 验证命令：make verify；make test-migrations-postgres
-风险 / 下一步：不可破坏唯一管理员不变式，Token 原值不得被后续查询或日志记录
+风险 / 下一步：不可破坏唯一管理员不变式，bootstrap 密码不得通过命令行、环境变量或文件传递
 ```
 
 ## 队列
@@ -49,7 +50,6 @@ ID / 目标：AKV-008.c / 实现 Web 用户与 Agent 管理
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-006.d`：持久化冻结计划与 Execution 终态并建立独立执行进程｜下一步 `AKV-006.e`｜计划提交 `feat(store): persist execution lifecycle`
 - 2026-07-15｜`AKV-006.e`：实现 0600 Token OpenBao 执行客户端与结构化 pgx 目标工厂｜下一步 `AKV-006.f`｜计划提交 `feat(proxy): add real execution adapters`
 - 2026-07-15｜`AKV-006.f`：装配 PostgreSQL Agent 认证、0600 配置和三类受保护执行路由｜下一步 `AKV-007.a`｜计划提交 `feat(proxy): assemble authenticated runtime`
 - 2026-07-15｜`AKV-007.a`：统一 5 秒回收并将失败永久阻断为 incident｜下一步 `AKV-007.b`｜计划提交 `feat(lifecycle): enforce terminal reclaim`
@@ -59,6 +59,7 @@ ID / 目标：AKV-008.c / 实现 Web 用户与 Agent 管理
 - 2026-07-15｜`AKV-007.e`：持久化 Lease 并恢复超时/失败回收直至关闭 incident｜下一步 `AKV-008.a`｜计划提交 `feat(worker): recover interrupted executions`
 - 2026-07-15｜`AKV-008.a`：装配无秘密 DTO 的 Agent Bearer 控制 API 与真实 PG 链路｜下一步 `AKV-008.b`｜计划提交 `feat(control): expose agent control API`
 - 2026-07-15｜`AKV-008.b`：实现可撤销 Web Session、安全 Cookie 与同源/CSRF 边界｜下一步 `AKV-008.c`｜计划提交 `feat(control): authenticate web sessions`
+- 2026-07-15｜`AKV-008.c`：实现自有 Agent 列表/注册/启停及 Token 一次返回的轮换/撤销｜下一步 `AKV-008.d`｜计划提交 `feat(control): manage owned agents`
 
 ## MVP 验收
 

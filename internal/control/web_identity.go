@@ -24,6 +24,7 @@ type WebIdentity interface {
 
 type WebRuntime struct {
 	Identity WebIdentity
+	Agents   WebAgentManager
 	config   Config
 }
 
@@ -32,6 +33,13 @@ func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
 	mux.HandleFunc("POST /v1/web/login", runtime.login)
 	mux.HandleFunc("GET /v1/web/me", runtime.me)
 	mux.HandleFunc("POST /v1/web/logout", runtime.logout)
+	if runtime.Agents != nil {
+		mux.HandleFunc("GET /v1/web/agents", runtime.listAgents)
+		mux.HandleFunc("POST /v1/web/agents", runtime.registerAgent)
+		mux.HandleFunc("POST /v1/web/agents/{agent_id}/rotate-token", runtime.rotateAgentToken)
+		mux.HandleFunc("DELETE /v1/web/agents/{agent_id}/token", runtime.revokeAgentToken)
+		mux.HandleFunc("PATCH /v1/web/agents/{agent_id}", runtime.setAgentActive)
+	}
 }
 
 func (runtime *WebRuntime) login(response http.ResponseWriter, request *http.Request) {

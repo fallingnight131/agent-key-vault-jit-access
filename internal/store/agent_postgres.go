@@ -40,13 +40,15 @@ func (repository *PostgreSQLAgentRepository) ReplaceAgentToken(ctx context.Conte
 		return fmt.Errorf("begin token replacement: %w", err)
 	}
 	defer func() { _ = transaction.Rollback() }()
-	result, err := transaction.ExecContext(ctx, `UPDATE agent_tokens tok SET revoked_at=$3 FROM agents a WHERE tok.agent_id=a.id AND a.id=$1 AND a.owner_user_id=$2 AND tok.revoked_at IS NULL`, agentID, ownerID, at)
+	var ownedAgentID string
+	if err := transaction.QueryRowContext(ctx, `SELECT id FROM agents WHERE id=$1 AND owner_user_id=$2 FOR UPDATE`, agentID, ownerID).Scan(&ownedAgentID); errors.Is(err, sql.ErrNoRows) {
+		return agent.ErrForbidden
+	} else if err != nil {
+		return fmt.Errorf("lock agent for token replacement: %w", err)
+	}
+	_, err = transaction.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at=$2 WHERE agent_id=$1 AND revoked_at IS NULL`, agentID, at)
 	if err != nil {
 		return fmt.Errorf("revoke previous agent token: %w", err)
-	}
-	rows, _ := result.RowsAffected()
-	if rows != 1 {
-		return agent.ErrForbidden
 	}
 	_, err = transaction.ExecContext(ctx, `INSERT INTO agent_tokens (id, agent_id, token_hash, expires_at, created_at) VALUES ($1,$2,$3,$4,$5)`, token.ID, agentID, token.TokenHash[:], token.ExpiresAt, token.CreatedAt)
 	if err != nil {
@@ -107,4 +109,27 @@ func (repository *PostgreSQLAgentRepository) SetAgentActive(ctx context.Context,
 		return agent.ErrForbidden
 	}
 	return nil
+}
+
+func (repository *PostgreSQLAgentRepository) ListOwnedAgents(ctx context.Context, ownerID string) ([]agent.View, error) {
+	rows, err := repository.database.QueryContext(ctx, `SELECT a.id,a.name,a.status,a.created_at,t.expires_at FROM agents a LEFT JOIN agent_tokens t ON t.agent_id=a.id AND t.revoked_at IS NULL WHERE a.owner_user_id=$1 ORDER BY a.created_at,a.id`, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var records []agent.View
+	for rows.Next() {
+		var record agent.View
+		var status string
+		var expiresAt sql.NullTime
+		if err := rows.Scan(&record.ID, &record.Name, &status, &record.CreatedAt, &expiresAt); err != nil {
+			return nil, err
+		}
+		record.Active = status == "ACTIVE"
+		if expiresAt.Valid {
+			record.TokenExpiresAt = &expiresAt.Time
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
 }

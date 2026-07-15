@@ -43,6 +43,10 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate() error = %v", err)
 	}
+	agents, err := agentService.List(ctx, testUserID)
+	if err != nil || len(agents) != 1 || agents[0].ID != principal.AgentID || agents[0].TokenExpiresAt == nil {
+		t.Fatalf("List() agents=%+v error=%v", agents, err)
+	}
 
 	catalogService := catalog.NewService(NewPostgreSQLCatalogRepository(database))
 	target, credential, err := catalogService.CreateTarget(ctx, identity.User{ID: testUserID, IsAdmin: true, OwnerActive: true}, catalog.CreateInput{
@@ -95,5 +99,15 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 	}
 	if err := taskService.Heartbeat(ctx, principal.AgentID, taskRecord.ID); !errors.Is(err, task.ErrTaskUnavailable) {
 		t.Fatalf("terminal Heartbeat() error = %v", err)
+	}
+	if err := agentService.RevokeToken(ctx, testUserID, principal.AgentID); err != nil {
+		t.Fatalf("RevokeToken() error = %v", err)
+	}
+	replacement, err := agentService.RotateToken(ctx, testUserID, principal.AgentID, agent.Token24Hours)
+	if err != nil {
+		t.Fatalf("RotateToken() after revocation error = %v", err)
+	}
+	if _, err := agentService.Authenticate(ctx, replacement.Token); err != nil {
+		t.Fatalf("replacement Authenticate() error = %v", err)
 	}
 }

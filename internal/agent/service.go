@@ -69,12 +69,21 @@ type Credential struct {
 	PermanentWarning bool
 }
 
+type View struct {
+	ID             string
+	Name           string
+	Active         bool
+	CreatedAt      time.Time
+	TokenExpiresAt *time.Time
+}
+
 type Repository interface {
 	CreateAgentWithToken(context.Context, Record, TokenRecord) error
 	ReplaceAgentToken(context.Context, string, string, TokenRecord, time.Time) error
 	FindAgentByTokenHash(context.Context, [sha256.Size]byte) (Record, TokenRecord, error)
 	RevokeAgentToken(context.Context, string, string, time.Time) error
 	SetAgentActive(context.Context, string, string, bool, time.Time) error
+	ListOwnedAgents(context.Context, string) ([]View, error)
 }
 
 type Service struct {
@@ -159,6 +168,17 @@ func (service *Service) SetActive(ctx context.Context, ownerUserID, agentID stri
 		return fmt.Errorf("set agent active: %w", err)
 	}
 	return nil
+}
+
+func (service *Service) List(ctx context.Context, ownerUserID string) ([]View, error) {
+	if ownerUserID == "" {
+		return nil, ErrInvalidInput
+	}
+	records, err := service.repository.ListOwnedAgents(ctx, ownerUserID)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	return records, nil
 }
 
 func (service *Service) newTokenRecord(now time.Time, expiresAt *time.Time) (string, TokenRecord, string, error) {
