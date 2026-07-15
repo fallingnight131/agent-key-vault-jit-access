@@ -13,6 +13,9 @@ func TestConfigFromEnv(t *testing.T) {
 		if config.ListenAddress != defaultListenAddress {
 			t.Fatalf("ListenAddress = %q, want %q", config.ListenAddress, defaultListenAddress)
 		}
+		if config.PublicOrigin != "http://"+defaultListenAddress || config.CookieSecure {
+			t.Fatalf("config = %+v", config)
+		}
 	})
 
 	t.Run("rejects malformed address", func(t *testing.T) {
@@ -20,6 +23,19 @@ func TestConfigFromEnv(t *testing.T) {
 
 		if _, err := ConfigFromEnv(); err == nil {
 			t.Fatal("ConfigFromEnv() error = nil, want error")
+		}
+	})
+
+	t.Run("validates web security configuration", func(t *testing.T) {
+		t.Setenv("AKV_CONTROL_PUBLIC_ORIGIN", "https://akv.example.test/path")
+		if _, err := ConfigFromEnv(); err == nil {
+			t.Fatal("path-bearing public origin was accepted")
+		}
+		t.Setenv("AKV_CONTROL_PUBLIC_ORIGIN", "https://akv.example.test")
+		t.Setenv("AKV_CONTROL_COOKIE_SECURE", "true")
+		config, err := ConfigFromEnv()
+		if err != nil || !config.CookieSecure {
+			t.Fatalf("ConfigFromEnv() config=%+v error=%v", config, err)
 		}
 	})
 }

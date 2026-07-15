@@ -56,6 +56,7 @@ type SessionRecord struct {
 
 type Session struct {
 	Token     string
+	CSRFToken string
 	ExpiresAt time.Time
 	User      User
 }
@@ -64,6 +65,8 @@ type Repository interface {
 	CreateInitialAdmin(context.Context, AccountRecord) error
 	FindActiveAccountByUsername(context.Context, string) (AccountRecord, error)
 	CreateSession(context.Context, SessionRecord) error
+	FindActiveSessionByTokenHash(context.Context, [sha256.Size]byte, time.Time) (User, error)
+	RevokeSession(context.Context, [sha256.Size]byte, time.Time) error
 }
 
 type Service struct {
@@ -138,6 +141,10 @@ func (service *Service) Login(ctx context.Context, username, password string, li
 	if err != nil {
 		return Session{}, fmt.Errorf("generate session token: %w", err)
 	}
+	csrfToken, err := service.newToken()
+	if err != nil {
+		return Session{}, fmt.Errorf("generate CSRF token: %w", err)
+	}
 	now := service.now()
 	sessionRecord := SessionRecord{
 		ID: id, UserID: record.ID, TokenHash: sha256.Sum256([]byte(token)),
@@ -146,7 +153,28 @@ func (service *Service) Login(ctx context.Context, username, password string, li
 	if err := service.repository.CreateSession(ctx, sessionRecord); err != nil {
 		return Session{}, fmt.Errorf("create session: %w", err)
 	}
-	return Session{Token: token, ExpiresAt: sessionRecord.ExpiresAt, User: publicUser(record)}, nil
+	return Session{Token: token, CSRFToken: csrfToken, ExpiresAt: sessionRecord.ExpiresAt, User: publicUser(record)}, nil
+}
+
+func (service *Service) AuthenticateSession(ctx context.Context, token string) (User, error) {
+	if token == "" {
+		return User{}, ErrInvalidCredentials
+	}
+	user, err := service.repository.FindActiveSessionByTokenHash(ctx, sha256.Sum256([]byte(token)), service.now())
+	if err != nil || !user.OwnerActive {
+		return User{}, ErrInvalidCredentials
+	}
+	return user, nil
+}
+
+func (service *Service) Logout(ctx context.Context, token string) error {
+	if token == "" {
+		return ErrInvalidCredentials
+	}
+	if err := service.repository.RevokeSession(ctx, sha256.Sum256([]byte(token)), service.now()); err != nil {
+		return ErrInvalidCredentials
+	}
+	return nil
 }
 
 func publicUser(record AccountRecord) User {

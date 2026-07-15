@@ -88,5 +88,5 @@ func TestAgentAPIRequiresBearer(t *testing.T) {
 
 func testAgentServer(authorizations *apiAuthorizations) *http.Server {
 	runtime := &AgentRuntime{Authenticator: apiAuthenticator{}, Targets: apiTargets{}, Tasks: apiTasks{}, Authorizations: authorizations, Statuses: apiStatuses{}}
-	return NewServer(Config{ListenAddress: "127.0.0.1:0"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), runtime)
+	return NewServer(Config{ListenAddress: "127.0.0.1:0"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), runtime, nil)
 }

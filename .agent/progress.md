@@ -1,12 +1,13 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.b`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.c`
 
 ## 恢复点
 
 - 回收、撤销、超时、取消、审计、180 天清理及崩溃 Lease 恢复均已通过真实 PostgreSQL 验证。
 - Agent Bearer API 已装配 PostgreSQL，覆盖目标发现、begin/heartbeat/end task、申请与所有权隔离的状态查询。
-- 下一轮 `AKV-008.b` 实现人类登录/Session 的 PostgreSQL 仓储与 Web 认证边界。
+- 人类登录/Session 已持久化；Cookie 使用 HttpOnly/SameSite 且 HTTPS 默认 Secure，状态变更校验同源与双提交 CSRF。
+- 下一轮 `AKV-008.c` 实现管理员用户/Agent 管理 API 及初始管理员启动方式。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
 
 ## 当前工作项
@@ -14,11 +15,11 @@
 下一最小切片：
 
 ```text
-ID / 目标：AKV-008.b / 实现人类 Web 认证边界
-验收条件：密码登录；Session Cookie 仅存哈希、HttpOnly/SameSite/secure 配置；登出立即撤销；停用用户默认拒绝；CSRF 保护；真实 PG 集成；make verify 通过
-修改范围：身份 PostgreSQL 仓储、Web Session middleware/handler、配置与测试、memory/progress
+ID / 目标：AKV-008.c / 实现 Web 用户与 Agent 管理
+验收条件：可重复且仅首次成功的管理员启动；管理员管理用户与 APPROVE_ALL；用户管理自有 Agent/Token；Token 仅创建/轮换当次返回；权限与 CSRF 默认拒绝；真实 PG 集成
+修改范围：用户/Agent 查询与变更仓储、Web API、启动命令、测试、memory/progress
 验证命令：make verify；make test-migrations-postgres
-风险 / 下一步：Cookie 原值不得进入日志或业务库，所有状态变更路由必须验证 CSRF
+风险 / 下一步：不可破坏唯一管理员不变式，Token 原值不得被后续查询或日志记录
 ```
 
 ## 队列
@@ -44,11 +45,10 @@ ID / 目标：AKV-008.b / 实现人类 Web 认证边界
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、`git diff --check` 和 `make test-migrations-postgres` 通过；Agent Token→目标→任务→申请→状态→结束的真实 PostgreSQL 链路已验证。
+- 2026-07-15：`make verify`、identity/control/store race、`git diff --check` 和 `make test-migrations-postgres` 通过；Session 哈希、撤销、过期/停用拒绝及 Cookie/CSRF 已验证。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-006.c`：实现先占用的 Transit 摘要签名且无私钥读取路径｜下一步 `AKV-006.d`｜计划提交 `feat(proxy): execute guarded Transit signatures`
 - 2026-07-15｜`AKV-006.d`：持久化冻结计划与 Execution 终态并建立独立执行进程｜下一步 `AKV-006.e`｜计划提交 `feat(store): persist execution lifecycle`
 - 2026-07-15｜`AKV-006.e`：实现 0600 Token OpenBao 执行客户端与结构化 pgx 目标工厂｜下一步 `AKV-006.f`｜计划提交 `feat(proxy): add real execution adapters`
 - 2026-07-15｜`AKV-006.f`：装配 PostgreSQL Agent 认证、0600 配置和三类受保护执行路由｜下一步 `AKV-007.a`｜计划提交 `feat(proxy): assemble authenticated runtime`
@@ -58,6 +58,7 @@ ID / 目标：AKV-008.b / 实现人类 Web 认证边界
 - 2026-07-15｜`AKV-007.d`：实现状态触发审计、关联链与 180 天限量实际清理｜下一步 `AKV-007.e`｜计划提交 `feat(audit): persist safe lifecycle events`
 - 2026-07-15｜`AKV-007.e`：持久化 Lease 并恢复超时/失败回收直至关闭 incident｜下一步 `AKV-008.a`｜计划提交 `feat(worker): recover interrupted executions`
 - 2026-07-15｜`AKV-008.a`：装配无秘密 DTO 的 Agent Bearer 控制 API 与真实 PG 链路｜下一步 `AKV-008.b`｜计划提交 `feat(control): expose agent control API`
+- 2026-07-15｜`AKV-008.b`：实现可撤销 Web Session、安全 Cookie 与同源/CSRF 边界｜下一步 `AKV-008.c`｜计划提交 `feat(control): authenticate web sessions`
 
 ## MVP 验收
 

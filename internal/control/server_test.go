@@ -11,7 +11,7 @@ import (
 
 func TestHealth(t *testing.T) {
 	var logs bytes.Buffer
-	server := NewServer(Config{ListenAddress: defaultListenAddress}, slog.New(slog.NewJSONHandler(&logs, nil)), nil)
+	server := NewServer(Config{ListenAddress: defaultListenAddress}, slog.New(slog.NewJSONHandler(&logs, nil)), nil, nil)
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	response := httptest.NewRecorder()
 

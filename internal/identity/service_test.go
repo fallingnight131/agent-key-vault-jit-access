@@ -13,6 +13,7 @@ import (
 type fakeRepository struct {
 	account *AccountRecord
 	session *SessionRecord
+	revoked bool
 }
 
 func (repository *fakeRepository) CreateInitialAdmin(_ context.Context, account AccountRecord) error {
@@ -32,6 +33,21 @@ func (repository *fakeRepository) FindActiveAccountByUsername(_ context.Context,
 
 func (repository *fakeRepository) CreateSession(_ context.Context, session SessionRecord) error {
 	repository.session = &session
+	return nil
+}
+
+func (repository *fakeRepository) FindActiveSessionByTokenHash(_ context.Context, hash [sha256.Size]byte, now time.Time) (User, error) {
+	if repository.account == nil || repository.session == nil || repository.session.TokenHash != hash || repository.revoked || !repository.session.ExpiresAt.After(now) || !repository.account.Active {
+		return User{}, ErrNotFound
+	}
+	return publicUser(*repository.account), nil
+}
+
+func (repository *fakeRepository) RevokeSession(_ context.Context, hash [sha256.Size]byte, _ time.Time) error {
+	if repository.session == nil || repository.session.TokenHash != hash || repository.revoked {
+		return ErrNotFound
+	}
+	repository.revoked = true
 	return nil
 }
 
@@ -68,7 +84,7 @@ func TestLoginStoresOnlyTokenHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	if session.Token != "raw-session-token" {
+	if session.Token != "raw-session-token" || session.CSRFToken != "raw-session-token" {
 		t.Fatalf("Token = %q", session.Token)
 	}
 	wantHash := sha256.Sum256([]byte(session.Token))
@@ -77,6 +93,27 @@ func TestLoginStoresOnlyTokenHash(t *testing.T) {
 	}
 	if repository.session.ExpiresAt.Sub(repository.session.CreatedAt) != time.Hour {
 		t.Fatalf("session lifetime = %v", repository.session.ExpiresAt.Sub(repository.session.CreatedAt))
+	}
+}
+
+func TestSessionAuthenticationAndLogout(t *testing.T) {
+	repository := &fakeRepository{}
+	service := newTestService(t, repository)
+	if _, err := service.BootstrapAdmin(context.Background(), "admin", "password"); err != nil {
+		t.Fatalf("BootstrapAdmin() error = %v", err)
+	}
+	session, err := service.Login(context.Background(), "admin", "password", time.Hour)
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	if user, err := service.AuthenticateSession(context.Background(), session.Token); err != nil || !user.IsAdmin {
+		t.Fatalf("AuthenticateSession() user=%+v error=%v", user, err)
+	}
+	if err := service.Logout(context.Background(), session.Token); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	if _, err := service.AuthenticateSession(context.Background(), session.Token); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("revoked AuthenticateSession() error = %v", err)
 	}
 }
 
