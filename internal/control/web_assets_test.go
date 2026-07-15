@@ -32,3 +32,13 @@ func TestWebConsoleDoesNotPersistOrUseUnsafeBusinessRendering(t *testing.T) {
 		}
 	}
 }
+
+func TestWebConsoleHiddenViewsRemainHidden(t *testing.T) {
+	stylesheet, err := webFiles.ReadFile("web/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stylesheet), "[hidden]{display:none!important}") {
+		t.Fatal("app.css must prevent component display rules from overriding the hidden attribute")
+	}
+}

@@ -17,15 +17,16 @@
 - `make verify-all` 使用全新临时 PostgreSQL 验证迁移、并发、race 和不预置 Grant 的完整授权→执行→回收→审计闭环。
 - 管理员 Web 已覆盖 HTTP/PostgreSQL 目标、全部 MVP 凭证类型、全局审计和安全告警；证书可存储但申请阶段禁止执行。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
+- Web 视图通过高优先级 `hidden` 规则可靠切换，组件自身的 display 样式不再遮挡登录后的工作台。
 
 ## 当前工作项
 
 已完成工作项：
 
 ```text
-ID / 目标：AKV-009.a / 建立可运行示例与 E2E 验收矩阵
-结果：README、非秘密配置样例、OpenBao 分权策略、真实 PostgreSQL E2E、10 项验收证据、完整 Web 控制面和 actor 审计均已落地
-验证：`make verify-all`、`make build`、`node --check internal/control/web/app.js`、`git diff --check` 通过
+ID / 目标：AKV-010.a / 修复管理员登录后登录页未隐藏
+结果：补充高优先级 hidden 样式和嵌入式静态资源回归测试，登录页与工作台现在可按认证状态可靠切换
+验证：针对性 control 测试、`make verify`、`make build`、`git diff --check` 通过
 ```
 
 ## 队列
@@ -41,6 +42,7 @@ ID / 目标：AKV-009.a / 建立可运行示例与 E2E 验收矩阵
 | `AKV-007` | `DONE` | 005,006 | 超时、撤销、回收、异常恢复、审计及保留清理 |
 | `AKV-008` | `DONE` | 003-007 | MCP 工具和 Web 控制面 |
 | `AKV-009` | `DONE` | 008 | 需求第 5 节全部端到端安全验收与演示 |
+| `AKV-010.a` | `DONE` | 009 | 修复 Web 登录视图切换并增加回归测试 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -50,11 +52,10 @@ ID / 目标：AKV-009.a / 建立可运行示例与 E2E 验收矩阵
 
 ## 最近验证
 
-- 2026-07-15：`make verify-all`通过；包含全包 race、4 个不可变迁移、真实 PostgreSQL 并发/生命周期/审计/E2E；`make build`产出 5 个可执行文件。
+- 2026-07-15：`AKV-010.a` 针对性 control 测试、`make verify`、`make build`、`git diff --check` 通过；`bin` 产出 5 个可执行文件。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-008.a`：装配无秘密 DTO 的 Agent Bearer 控制 API 与真实 PG 链路｜下一步 `AKV-008.b`｜计划提交 `feat(control): expose agent control API`
 - 2026-07-15｜`AKV-008.b`：实现可撤销 Web Session、安全 Cookie 与同源/CSRF 边界｜下一步 `AKV-008.c`｜计划提交 `feat(control): authenticate web sessions`
 - 2026-07-15｜`AKV-008.c`：实现自有 Agent 列表/注册/启停及 Token 一次返回的轮换/撤销｜下一步 `AKV-008.d`｜计划提交 `feat(control): manage owned agents`
 - 2026-07-15｜`AKV-008.d`：实现无回显 bootstrap 和已有用户启停/APPROVE_ALL，保护唯一管理员｜下一步 `AKV-008.e`｜计划提交 `feat(control): manage human users`
@@ -64,6 +65,7 @@ ID / 目标：AKV-009.a / 建立可运行示例与 E2E 验收矩阵
 - 2026-07-15｜`AKV-008.g`：实现无持久化/无不安全渲染的嵌入式人类审批工作台与 CSP｜下一步 `AKV-008.h`｜计划提交 `feat(web): add human control console`
 - 2026-07-15｜`AKV-008.h`：实现 9 工具 stdio MCP、0600 Token 注入、15 秒心跳和无重试受控执行｜下一步 `AKV-009.a`｜计划提交 `feat(mcp): expose controlled agent tools`
 - 2026-07-15｜`AKV-009.a`：补齐本地运行/分权策略、完整 Web 控制面、actor/拒绝审计和真实 PG E2E｜下一步无｜计划提交 `test(e2e): verify MVP security matrix`
+- 2026-07-15｜`AKV-010.a`：修复 hidden 被组件 display 覆盖导致登录后工作台不可见，并增加回归测试｜下一步无｜计划提交 `fix(web): honor hidden view state`
 
 ## MVP 验收
 
