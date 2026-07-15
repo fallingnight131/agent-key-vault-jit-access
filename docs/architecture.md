@@ -206,7 +206,7 @@ flowchart LR
 
 Web 前端是人类控制面，不是 Agent 执行入口。
 
-实现使用 Vue 3 和 Vite。Vite 只参与构建与测试，生产静态产物由 Go `embed` 打入 `akv-control`，运行时不需要 Node.js 或独立前端服务。
+实现使用 Vue 3 和 Vite。可维护的前端工程位于项目根目录 `web/`，Vite 将生产静态产物写入 `internal/control/web/dist/`，再由 Go `embed` 打入 `akv-control`。Vite 只参与构建与测试，运行时不需要 Node.js 或独立前端服务。
 
 普通用户界面包含：
 

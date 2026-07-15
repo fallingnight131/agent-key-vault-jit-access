@@ -11,7 +11,7 @@ export default defineConfig({
   },
   build: {
     emptyOutDir: true,
-    outDir: 'dist',
+    outDir: '../internal/control/web/dist',
     sourcemap: false,
   },
   test: {

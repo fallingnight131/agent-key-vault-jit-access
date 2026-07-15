@@ -2,7 +2,7 @@
 
 GOCACHE ?= /tmp/akv-go-cache
 export GOCACHE
-WEB_DIR := internal/control/web
+WEB_DIR := web
 WEB_DEPS := $(WEB_DIR)/node_modules/.package-lock.json
 
 $(WEB_DEPS): $(WEB_DIR)/package.json $(WEB_DIR)/package-lock.json $(WEB_DIR)/.npmrc

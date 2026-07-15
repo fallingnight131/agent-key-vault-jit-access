@@ -59,7 +59,7 @@ make web-test
 make web-build
 ```
 
-前端源码位于 `internal/control/web/src`，生成文件位于 `internal/control/web/dist`。不要手工编辑 `dist` 中的文件。
+完整的前端工程位于项目根目录 `web`，Vue 源码位于 `web/src`，前端测试位于 `web/test`。生成文件位于 `internal/control/web/dist`，只供 Go 服务嵌入使用，不要手工编辑。
 
 构建成功后，`bin` 目录中会出现以下程序：
 
@@ -416,7 +416,7 @@ chmod 600 /tmp/akv-local/agent/token
 2. `npm --version` 是否为 10 或更高版本；
 3. 当前网络是否可以访问 npm 软件源；
 4. 是否在项目根目录执行 `make web-test` 或 `make web-build`；
-5. 不要手工修改 `internal/control/web/dist`，它会在每次 Vite 构建时重新生成。
+5. 确认前端源码放在项目根目录的 `web` 中，不要手工修改 `internal/control/web/dist`，它会在每次 Vite 构建时重新生成。
 
 ### 执行请求总是被拒绝
 

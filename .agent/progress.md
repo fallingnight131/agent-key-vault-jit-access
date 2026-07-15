@@ -17,16 +17,16 @@
 - `make verify-all` 使用全新临时 PostgreSQL 验证迁移、并发、race 和不预置 Grant 的完整授权→执行→回收→审计闭环。
 - 管理员 Web 已覆盖 HTTP/PostgreSQL 目标、全部 MVP 凭证类型、全局审计和安全告警；证书可存储但申请阶段禁止执行。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
-- Web 控制台已迁移为 Vue 3 + Vite，哈希静态产物继续由 `akv-control` 单二进制同源交付，运行时不增加前端服务。
+- Web 控制台工程位于根目录 `web/`，Vite 哈希产物输出到 `internal/control/web/dist/`，继续由 `akv-control` 单二进制同源交付，运行时不增加前端服务。
 
 ## 当前工作项
 
 已完成工作项：
 
 ```text
-ID / 目标：AKV-011.a / 将嵌入式 Web 控制台迁移到 Vue 3
-结果：登录、审批、Agent、目录、用户、审计和告警已迁移到 Vue 3；Vite 哈希产物由 Go embed 交付；安全扫描、组件/API 测试、构建链和本地运行教程已落地
-验证：Vue 6 项测试、浏览器登录/导航/退出、`make verify`、全包 race、真实 PostgreSQL 集成、`make build` 和 `git diff --check` 通过
+ID / 目标：AKV-011.b / 优化 Web 项目目录结构
+结果：Vue 源码、测试和 Node 工具链已迁移到根目录 `web/`；Vite 继续输出到 Go embed 目录；构建、文档和路径引用已同步
+验证：Vue 安全扫描与 6 项测试、Vite 生产构建、`make verify`、五个二进制构建和 `git diff --check` 通过
 ```
 
 ## 队列
@@ -44,6 +44,7 @@ ID / 目标：AKV-011.a / 将嵌入式 Web 控制台迁移到 Vue 3
 | `AKV-009` | `DONE` | 008 | 需求第 5 节全部端到端安全验收与演示 |
 | `AKV-010.a` | `DONE` | 009 | 修复 Web 登录视图切换并增加回归测试 |
 | `AKV-011.a` | `DONE` | 010.a | Vue 3 控制台、构建链、测试与本地运行教程 |
+| `AKV-011.b` | `DONE` | 011.a | 前端源码与生成资源职责分离的项目结构 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -54,10 +55,10 @@ ID / 目标：AKV-011.a / 将嵌入式 Web 控制台迁移到 Vue 3
 ## 最近验证
 
 - 2026-07-15：`AKV-011.a` Vue 6 项测试、浏览器冒烟、`make verify`、全包 race、真实临时 PostgreSQL、`make build`、`git diff --check` 通过。
+- 2026-07-15：`AKV-011.b` Vue 安全扫描与 6 项测试、Vite 构建、`make verify`、五个二进制构建和 `git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-008.c`：实现自有 Agent 列表/注册/启停及 Token 一次返回的轮换/撤销｜下一步 `AKV-008.d`｜计划提交 `feat(control): manage owned agents`
 - 2026-07-15｜`AKV-008.d`：实现无回显 bootstrap 和已有用户启停/APPROVE_ALL，保护唯一管理员｜下一步 `AKV-008.e`｜计划提交 `feat(control): manage human users`
 - 2026-07-15｜`AKV-008.e1`：实现无读取能力的 OpenBao KV/Database Role 控制写客户端｜下一步 `AKV-008.e2`｜计划提交 `feat(vault): add control-plane writer`
 - 2026-07-15｜`AKV-008.e2`：实现服务端路径的目标/凭证录入更新停用与无秘密 Web DTO｜下一步 `AKV-008.f`｜计划提交 `feat(control): manage credential catalog`
@@ -67,6 +68,7 @@ ID / 目标：AKV-011.a / 将嵌入式 Web 控制台迁移到 Vue 3
 - 2026-07-15｜`AKV-009.a`：补齐本地运行/分权策略、完整 Web 控制面、actor/拒绝审计和真实 PG E2E｜下一步无｜计划提交 `test(e2e): verify MVP security matrix`
 - 2026-07-15｜`AKV-010.a`：修复 hidden 被组件 display 覆盖导致登录后工作台不可见，并增加回归测试｜下一步无｜计划提交 `fix(web): honor hidden view state`
 - 2026-07-15｜`AKV-011.a`：将完整控制台迁移为 Vue 3 + Vite，保留单二进制与安全边界并更新本地教程｜下一步无｜计划提交 `feat(web): migrate console to Vue`
+- 2026-07-15｜`AKV-011.b`：将 Vue 工程迁移至根目录并保留 Go 嵌入产物边界｜下一步无｜计划提交 `refactor(web): separate source from embedded assets`
 
 ## MVP 验收
 

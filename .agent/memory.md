@@ -58,7 +58,7 @@
 - 2026-07-15：OpenBao 控制客户端是独立导出类型，只满足 `ControlWriter` 的 KV v2、不可导出 Transit Key 和 Database Role 写方法；凭证读取、签名、动态签发和 Lease 撤销仅存于执行客户端。
 - 2026-07-15：管理 API 忽略客户端 Vault 路径并按凭证 UUID 生成 KV/Transit/Database 引用；秘密以 base64 JSON 字节输入并在请求后清零，对外目录 DTO 仅含别名/类型/状态而无 Vault 引用。
 - 2026-07-15：Web 申请查询在 SQL 中按 Agent owner/APPROVE_ALL/管理员限定，返回冻结 operation、别名和非秘密风险提示；审批/撤销复用原子服务，人工关闭 incident 只变更告警状态且 Grant 保持 `RECLAIM_FAILED`。
-- 2026-07-15：人类工作台使用 Vue 3 + Vite，带哈希的生产静态资源由 Go embed 与控制 API 同源交付；源码扫描禁止 `v-html`、浏览器持久化、直接 HTML 写入和 console，CSP 禁止外部脚本/对象/框架，Agent Token 只在可清零的一次性 dialog 状态中展示。
+- 2026-07-15：人类工作台使用 Vue 3 + Vite；可维护工程位于根目录 `web/`，生产产物输出到 `internal/control/web/dist/`，再由 Go embed 与控制 API 同源交付；源码扫描禁止 `v-html`、浏览器持久化、直接 HTML 写入和 console，CSP 禁止外部脚本/对象/框架，Agent Token 只在可清零的一次性 dialog 状态中展示。
 - 2026-07-15：MCP Server 使用官方稳定 `2025-11-25` stdio 换行 JSON-RPC（并兼容 `2025-06-18` initialize）；9 个工具 schema 无 Token/凭证 ID/任意 URL/认证头，执行类型从服务端状态选路，HTTP 不重试且拒绝重定向。
 - 2026-07-15：`make verify-all` 是完整交付门，包含静态检查、全包 race 和全新临时 PostgreSQL；E2E 不预置申请/Grant，贯通 Agent、任务、审批、代理、回收、拒绝重放与 actor 审计。
 - 2026-07-15：业务审计对申请/审批/主动撤销/拒绝 Claim 记录固定 USER/AGENT actor 和无敏感 metadata；唯一管理员可在 Web 查看最新 500 条全局审计。
