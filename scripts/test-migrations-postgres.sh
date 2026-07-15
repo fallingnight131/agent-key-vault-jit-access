@@ -22,3 +22,7 @@ trigger_count=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest \
 
 test "$table_count" -eq 14
 test "$trigger_count" -eq 1
+
+AKV_TEST_POSTGRES_DSN="host=$postgres_socket user=akvtest dbname=akvtest sslmode=disable" \
+	GOCACHE="${GOCACHE:-/tmp/akv-go-cache}" \
+	go test -race ./internal/store -run TestPostgreSQLAuthorizationConcurrency -count=1

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/fallingnight/akv/internal/domain"
@@ -79,13 +78,10 @@ type ApprovalService struct {
 }
 
 func NewApprovalService(repository DecisionRepository) *ApprovalService {
-	var sequence atomic.Uint64
 	return &ApprovalService{
 		repository: repository,
 		now:        time.Now,
-		newID: func() (string, error) {
-			return fmt.Sprintf("generated-%d", sequence.Add(1)), nil
-		},
+		newID:      randomID,
 	}
 }
 

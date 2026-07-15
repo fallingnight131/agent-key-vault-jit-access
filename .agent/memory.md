@@ -39,6 +39,7 @@
 - 2026-07-15：授权申请只接受 `task_id`、`target_id`、理由和强类型操作；服务端解析 `credential_id`，以确定性 JSON 对 Agent/任务/目标/凭证/操作整体做 SHA-256 快照，审批等待固定 30 分钟。
 - 2026-07-15：审批服务只做权限/输入准备，最终竞争由仓储 `DecidePending` 单事务完成；批准同事务创建最长 10 分钟且绑定完整快照的 Grant，拒绝和过期不创建 Grant。
 - 2026-07-15：执行守卫只依赖单个 `ClaimApproved` 条件更新能力，完整匹配 Grant/Agent/任务/目标/凭证/操作哈希/期限后才返回；不具备 Vault 或连接器能力。
+- 2026-07-15：PostgreSQL 授权仓储用 serializable 事务原子写审批+Grant；占用用单条联结 `ACTIVE` task 的条件 `UPDATE ... RETURNING`，pgx v5 驱动和临时真实 PostgreSQL race 测试验证并发单赢家。
 
 ## Agent 维护区
 
