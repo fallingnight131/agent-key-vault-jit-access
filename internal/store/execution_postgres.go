@@ -13,6 +13,7 @@ import (
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/catalog"
 	"github.com/fallingnight/akv/internal/domain"
+	"github.com/fallingnight/akv/internal/lifecycle"
 	"github.com/fallingnight/akv/internal/proxy"
 )
 
@@ -91,6 +92,21 @@ WHERE id = $2 AND status = 'EXECUTING' AND claimed_at IS NOT NULL`, id, grant.ID
 	return id, nil
 }
 
+func (repository *PostgreSQLExecutionRepository) RecordLease(ctx context.Context, executionID, leaseID string) error {
+	if leaseID == "" {
+		return errors.New("empty lease ID")
+	}
+	result, err := repository.database.ExecContext(ctx, `UPDATE executions SET vault_lease_id=$2 WHERE id=$1 AND status='EXECUTING' AND vault_lease_id IS NULL`, executionID, leaseID)
+	if err != nil {
+		return fmt.Errorf("record execution lease: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows != 1 {
+		return errors.New("execution lease cannot be recorded")
+	}
+	return nil
+}
+
 func (repository *PostgreSQLExecutionRepository) Finish(ctx context.Context, executionID string, status domain.ExecutionStatus, completedAt time.Time, errorCode string) error {
 	if !domain.ExecutionExecuting.CanTransitionTo(status) {
 		return errors.New("invalid execution terminal status")
@@ -144,7 +160,7 @@ UPDATE operation_grants g SET status='RECLAIMING'
 FROM executions e
 WHERE e.id=$1 AND g.id=e.grant_id
   AND e.status IN ('SUCCEEDED','FAILED','CANCELLED','TIMED_OUT')
-  AND g.status=e.status`, executionID)
+  AND (g.status=e.status OR g.status='RECLAIM_FAILED')`, executionID)
 	if err != nil {
 		return "", fmt.Errorf("start grant reclaim: %w", err)
 	}
@@ -205,6 +221,17 @@ WHERE r.id=$1 AND g.id=e.grant_id AND g.status='RECLAIMING'`, reclaimID, grantSt
 		if err != nil {
 			return fmt.Errorf("create reclaim incident: %w", err)
 		}
+	} else {
+		_, err = transaction.ExecContext(ctx, `
+UPDATE security_incidents SET status='RESOLVED',resolved_at=$2
+WHERE status='OPEN' AND reclaim_id IN (
+    SELECT previous.id FROM reclaims current
+    JOIN reclaims previous ON previous.execution_id=current.execution_id
+    WHERE current.id=$1
+)`, reclaimID, completedAt)
+		if err != nil {
+			return fmt.Errorf("resolve reclaim incidents: %w", err)
+		}
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit reclaim finish: %w", err)
@@ -233,6 +260,70 @@ WHERE e.status='EXECUTING' AND g.status='EXECUTING' AND g.revoked_at IS NOT NULL
 		return nil, err
 	}
 	return ids, nil
+}
+
+func (repository *PostgreSQLExecutionRepository) MarkStuckAndListRecovery(ctx context.Context, now time.Time, limit int) ([]lifecycle.RecoveryItem, error) {
+	transaction, err := repository.database.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin execution recovery: %w", err)
+	}
+	defer func() { _ = transaction.Rollback() }()
+	_, err = transaction.ExecContext(ctx, `
+WITH stuck AS (
+    SELECT e.id
+    FROM executions e
+    JOIN operation_grants g ON g.id=e.grant_id
+    JOIN authorization_requests r ON r.id=g.request_id
+    WHERE e.status='EXECUTING' AND g.status='EXECUTING'
+      AND e.started_at <= $1::timestamptz - CASE r.operation
+        WHEN 'HTTP' THEN interval '30 seconds'
+        WHEN 'POSTGRESQL_STATEMENT' THEN interval '60 seconds'
+        WHEN 'POSTGRESQL_TRANSACTION' THEN interval '5 minutes'
+        ELSE interval '30 seconds' END
+    FOR UPDATE OF e,g SKIP LOCKED
+)
+UPDATE executions e SET status='TIMED_OUT',completed_at=$1,error_code='PROXY_RECOVERY_TIMEOUT'
+FROM stuck WHERE e.id=stuck.id`, now)
+	if err != nil {
+		return nil, fmt.Errorf("mark stuck executions: %w", err)
+	}
+	_, err = transaction.ExecContext(ctx, `
+UPDATE operation_grants g SET status='TIMED_OUT',completed_at=$1
+FROM executions e
+WHERE e.grant_id=g.id AND e.status='TIMED_OUT' AND g.status='EXECUTING'`, now)
+	if err != nil {
+		return nil, fmt.Errorf("mark stuck grants: %w", err)
+	}
+	rows, err := transaction.QueryContext(ctx, `
+SELECT e.id,e.vault_lease_id
+FROM executions e JOIN operation_grants g ON g.id=e.grant_id
+WHERE g.status IN ('SUCCEEDED','FAILED','CANCELLED','TIMED_OUT','RECLAIM_FAILED')
+  AND NOT EXISTS (SELECT 1 FROM reclaims r WHERE r.execution_id=e.id AND r.status IN ('RECLAIMING','RECLAIMED'))
+ORDER BY COALESCE(e.completed_at,e.started_at)
+LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recovery candidates: %w", err)
+	}
+	defer rows.Close()
+	var items []lifecycle.RecoveryItem
+	for rows.Next() {
+		var item lifecycle.RecoveryItem
+		var lease sql.NullString
+		if err := rows.Scan(&item.ExecutionID, &lease); err != nil {
+			return nil, err
+		}
+		if lease.Valid {
+			item.LeaseID = lease.String
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func randomExecutionID() (string, error) {

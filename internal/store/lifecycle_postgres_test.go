@@ -140,3 +140,62 @@ func TestPostgreSQLTaskEndRevokesUnfinishedGrant(t *testing.T) {
 		t.Fatalf("task=%s grant=%s", taskStatus, grantStatus)
 	}
 }
+
+func TestPostgreSQLCrashRecoveryRetriesWithoutRestoringGrant(t *testing.T) {
+	dsn := os.Getenv("AKV_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("AKV_TEST_POSTGRES_DSN is not set")
+	}
+	database, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	seedAuthorizationDatabase(t, database)
+	seedApprovedGrant(t, database)
+	guard := authorization.NewExecutionGuard(NewPostgreSQLAuthorizationRepository(database))
+	grant, err := guard.Claim(context.Background(), authorization.ClaimContext{GrantID: testGrantID, AgentID: testAgentID, TaskID: testTaskID, TargetID: testTargetID, CredentialID: testCredentialID, OperationHash: testOperationHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := NewPostgreSQLExecutionRepository(database)
+	executionID, err := repository.Start(context.Background(), grant, time.Now().UTC().Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.RecordLease(context.Background(), executionID, "fixture-lease-id"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := repository.MarkStuckAndListRecovery(context.Background(), time.Now().UTC(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ExecutionID != executionID || items[0].LeaseID != "fixture-lease-id" {
+		t.Fatalf("items=%+v", items)
+	}
+	reclaimID, err := repository.StartReclaim(context.Background(), executionID, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.FinishReclaim(context.Background(), reclaimID, false, time.Now().UTC(), "LEASE_REVOKE_FAILED"); err != nil {
+		t.Fatal(err)
+	}
+	items, err = repository.MarkStuckAndListRecovery(context.Background(), time.Now().UTC(), 100)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("retry items=%+v error=%v", items, err)
+	}
+	retryID, err := repository.StartReclaim(context.Background(), executionID, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.FinishReclaim(context.Background(), retryID, true, time.Now().UTC(), ""); err != nil {
+		t.Fatal(err)
+	}
+	var grantStatus, incidentStatus string
+	if err := database.QueryRow(`SELECT g.status,i.status FROM operation_grants g JOIN executions e ON e.grant_id=g.id JOIN reclaims r ON r.execution_id=e.id JOIN security_incidents i ON i.reclaim_id=r.id WHERE g.id=$1 LIMIT 1`, testGrantID).Scan(&grantStatus, &incidentStatus); err != nil {
+		t.Fatal(err)
+	}
+	if grantStatus != "RECLAIMED" || incidentStatus != "RESOLVED" {
+		t.Fatalf("grant=%s incident=%s", grantStatus, incidentStatus)
+	}
+}

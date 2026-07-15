@@ -65,6 +65,7 @@ func (lifecycle *fakeLifecycle) Start(context.Context, authorization.Grant, time
 	lifecycle.starts++
 	return "execution", nil
 }
+func (*fakeLifecycle) RecordLease(context.Context, string, string) error { return nil }
 func (lifecycle *fakeLifecycle) Finish(_ context.Context, _ string, status domain.ExecutionStatus, _ time.Time, _ string) error {
 	lifecycle.finishes = append(lifecycle.finishes, status)
 	return nil

@@ -50,6 +50,7 @@ type Guard interface {
 
 type Lifecycle interface {
 	Start(context.Context, authorization.Grant, time.Time) (string, error)
+	RecordLease(context.Context, string, string) error
 	Finish(context.Context, string, domain.ExecutionStatus, time.Time, string) error
 	StartReclaim(context.Context, string, time.Time) (string, error)
 	FinishReclaim(context.Context, string, bool, time.Time, string) error

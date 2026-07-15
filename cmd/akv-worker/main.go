@@ -13,6 +13,7 @@ import (
 	"github.com/fallingnight/akv/internal/lifecycle"
 	"github.com/fallingnight/akv/internal/proxy"
 	"github.com/fallingnight/akv/internal/store"
+	"github.com/fallingnight/akv/internal/vault"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -43,6 +44,13 @@ func main() {
 	}
 	service := lifecycle.NewService(store.NewPostgreSQLLifecycleRepository(database))
 	auditService := audit.NewService(store.NewPostgreSQLAuditRepository(database))
+	vaultClient, err := vault.NewOpenBaoExecutionClient(os.Getenv("AKV_OPENBAO_ADDRESS"), os.Getenv("AKV_OPENBAO_TOKEN_FILE"))
+	if err != nil {
+		logger.Error("invalid OpenBao recovery configuration", "error", err)
+		os.Exit(2)
+	}
+	defer vaultClient.Close()
+	recoveryService := lifecycle.NewRecoveryService(store.NewPostgreSQLExecutionRepository(database), vaultClient)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	ticker := time.NewTicker(5 * time.Second)
@@ -52,6 +60,12 @@ func main() {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			recovery, err := recoveryService.Recover(ctx)
+			if err != nil {
+				logger.Error("execution recovery failed", "error", err)
+			} else if recovery.Candidates > 0 {
+				logger.Info("execution recovery completed", "recovered", recovery.Recovered, "failed", recovery.Failed)
+			}
 			result, err := service.Sweep(ctx)
 			if err != nil {
 				logger.Error("lifecycle sweep failed", "error", err)

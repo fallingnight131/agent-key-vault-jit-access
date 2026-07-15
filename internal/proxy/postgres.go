@@ -103,6 +103,14 @@ func (proxy *PostgreSQLProxy) Execute(ctx context.Context, requestID, authentica
 		return PostgreSQLResult{}, &PublicError{Code: "VAULT_UNAVAILABLE"}
 	}
 	handleCleanup := func(cleanupContext context.Context) error { return handle.Close(cleanupContext) }
+	if handle.LeaseID != "" {
+		if err := proxy.lifecycle.RecordLease(executionContext, executionID, handle.LeaseID); err != nil {
+			if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "EXECUTION_STATE_FAILED", handleCleanup, proxy.now); finalError != nil {
+				return PostgreSQLResult{}, finalError
+			}
+			return PostgreSQLResult{}, &PublicError{Code: "EXECUTION_STATE_FAILED"}
+		}
+	}
 	database, err := proxy.factory.Connect(executionContext, plan.Target.ConnectionConfig, handle.Values)
 	if err != nil {
 		if finalError := finalizeExecution(ctx, proxy.lifecycle, executionID, domain.ExecutionFailed, "TARGET_UNAVAILABLE", handleCleanup, proxy.now); finalError != nil {

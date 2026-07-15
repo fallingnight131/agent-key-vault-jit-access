@@ -50,6 +50,7 @@
 - 2026-07-15：Worker 每 5 秒原子过期 30 分钟申请/到期未占用 Grant，并在 45 秒心跳边界结束任务、撤销未消费 Grant；主动撤销与占用由条件更新竞争，执行中写 `revoked_at` 并产生取消 ID。
 - 2026-07-15：execution-proxy 每秒轮询已撤销 EXECUTING Grant，用进程内 registry 取消活动 context；HTTP/PG/Sign 映射为 `CANCELLED` 后仍回收，正常 end_task 同事务撤销未完成 Grant。
 - 2026-07-15：业务状态触发器写入仅含状态码的关联审计，应用审计 metadata 为严格白名单；Worker 按 1000 条批次实际删除 180 天前事件。
+- 2026-07-15：动态执行只额外持久化不可返回的 OpenBao Lease 引用；Worker 按操作超时恢复卡死执行，`RECLAIM_FAILED` 可重试但 Grant 不恢复，成功后关闭既有 incident。
 
 ## Agent 维护区
 
