@@ -6,21 +6,22 @@ import (
 	"net/http"
 )
 
-//go:embed web/*
+//go:embed web/dist
 var webFiles embed.FS
 
 func registerWebAssets(mux *http.ServeMux) {
-	root, _ := fs.Sub(webFiles, "web")
+	root, _ := fs.Sub(webFiles, "web/dist")
 	assets := http.FileServer(http.FS(root))
-	mux.Handle("GET /assets/", http.StripPrefix("/assets/", secureAssets(assets)))
+	mux.Handle("GET /assets/", secureAssets(assets))
 	mux.HandleFunc("GET /", func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/" {
 			http.NotFound(response, request)
 			return
 		}
 		securityHeaders(response)
+		response.Header().Set("Cache-Control", "no-cache")
 		response.Header().Set("Content-Type", "text/html; charset=utf-8")
-		data, err := webFiles.ReadFile("web/index.html")
+		data, err := fs.ReadFile(root, "index.html")
 		if err != nil {
 			http.Error(response, "unavailable", 500)
 			return
@@ -32,7 +33,7 @@ func registerWebAssets(mux *http.ServeMux) {
 func secureAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		securityHeaders(response)
-		response.Header().Set("Cache-Control", "public, max-age=3600")
+		response.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		next.ServeHTTP(response, request)
 	})
 }

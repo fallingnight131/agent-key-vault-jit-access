@@ -37,6 +37,8 @@ postgres-data/
 bin/
 build/
 dist/
+!internal/control/web/dist/
+!internal/control/web/dist/**
 coverage/
 coverage.out
 *.test

@@ -18,6 +18,7 @@
 请先安装下面的软件：
 
 - Go 1.26；
+- Node.js 20.19+ LTS、22.13+ LTS 或 24+，以及 npm 10 或更高版本；
 - PostgreSQL，并确保 `psql`、`createuser` 和 `createdb` 可以直接运行；
 - OpenBao，并确保 `bao` 命令可以直接运行；
 - `curl`，用于检查服务是否启动成功。
@@ -32,6 +33,8 @@ cd /Users/fallingnight/代码/work/akv-mvp-new
 
 ```sh
 go version
+node --version
+npm --version
 psql --version
 bao version
 curl --version
@@ -39,11 +42,24 @@ curl --version
 
 ## 2. 构建 AKV
 
+Web 控制台使用 Vue 3 和 Vite。Vue 只参与构建，运行 AKV 时不需要单独启动前端服务。
+
 执行：
 
 ```sh
 make build
 ```
+
+第一次构建时，`make build` 会通过 `npm ci` 安装锁定版本的前端依赖，运行前端构建，然后把生成的静态文件嵌入 `akv-control`。因此第一次构建需要能够访问 npm 软件源。
+
+如果只修改了 Vue 前端，也可以先单独检查和构建：
+
+```sh
+make web-test
+make web-build
+```
+
+前端源码位于 `internal/control/web/src`，生成文件位于 `internal/control/web/dist`。不要手工编辑 `dist` 中的文件。
 
 构建成功后，`bin` 目录中会出现以下程序：
 
@@ -220,6 +236,8 @@ bin/akv-control
 
 看到 `control service listening` 表示服务已经开始监听。
 
+Web 静态资源已经嵌入这个进程。修改 Vue 源码后，需要重新执行 `make web-build` 或 `make build`，然后重启 `akv-control`。不需要另外启动 Vite 开发服务器。
+
 ### 7.2 启动执行代理
 
 在第二个终端执行：
@@ -389,6 +407,16 @@ chmod 600 /tmp/akv-local/agent/token
 3. OpenBao 是否正在监听 `127.0.0.1:8200`；
 4. 控制面 Token 文件是否存在且权限为 `0600`；
 5. `kv`、`transit` 和 `database` 引擎是否已经启用。
+
+### 前端构建失败
+
+按顺序检查：
+
+1. Node.js 是否为 20.19+ LTS、22.13+ LTS 或 24+；不要使用 Node.js 21、23 等非 LTS 奇数版本；
+2. `npm --version` 是否为 10 或更高版本；
+3. 当前网络是否可以访问 npm 软件源；
+4. 是否在项目根目录执行 `make web-test` 或 `make web-build`；
+5. 不要手工修改 `internal/control/web/dist`，它会在每次 Vite 构建时重新生成。
 
 ### 执行请求总是被拒绝
 
