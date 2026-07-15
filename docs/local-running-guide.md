@@ -71,7 +71,7 @@ akv-bootstrap-admin
 
 ## 3. 准备本地敏感配置目录
 
-AKV 后端不接受通过命令参数直接传入数据库密码或 OpenBao Token。这些值必须放在只有当前用户可以读取的普通文件中。Agent Token 不属于后端启动配置，第 11 节会把它无回显地临时注入 Claude Code 运行时。
+AKV 后端不接受通过命令参数直接传入数据库密码或 OpenBao Token。这些值必须放在只有当前用户可以读取的普通文件中。Agent Token 不属于后端启动配置；本地 MVP 允许第 11 节把它保存到项目根目录 `.agent-token`，但目标源凭证仍然不能保存在项目中。
 
 本教程使用 `/tmp/akv-local`。电脑重启后，这个目录可能被系统清理。
 
@@ -303,11 +303,11 @@ http://127.0.0.1:8080/
 
 ## 10. 注册 Agent 并把 Token 交给 Claude Code
 
-在 Web 控制台中注册一个 Agent。注册成功后，页面只会显示一次完整 Agent Token。
+在 Web 控制台中注册一个 Agent。当前 Web 会创建有效期为 24 小时的 Token；注册成功后，页面只会显示一次完整 Agent Token。
 
 直连模式下，Agent 运行时必须持有这个 Token，才能以 `Authorization: Bearer <Agent Token>` 调用 AKV。Agent Token 只代表 AKV 中的 Agent 身份，它不是目标系统的 API Key、密码或私钥。
 
-不要把 Token 粘贴到 Claude 对话、项目文件、请求 JSON、命令行参数或日志中。下一节会用终端无回显输入将 Token 放入 Claude Code 运行时的环境。这是为本地 MVP 准备的简化方式；正式环境应使用工作负载身份或专用秘密交付机制。
+下一节会把 Token 保存到项目根目录 `.agent-token`。这是本地 MVP 唯一允许保存 Agent Token 的项目文件；它已经被 Git 忽略，必须设置为 `0600`，不得提交，也不要把 Token 粘贴到 Claude 对话、请求 JSON、命令行参数、日志或其他文件中。正式环境应使用工作负载身份或专用秘密交付机制。
 
 如果 Token 丢失，请在 Web 控制台中轮换 Token。轮换后，旧 Token 会立即失效，已经启动的 Claude Code 也需要退出并使用新 Token 重新启动。
 
@@ -330,33 +330,53 @@ test -f CLAUDE.md && echo "CLAUDE.md：正常" || echo "CLAUDE.md：缺失"
 
 两个 `curl` 都应返回包含 `"status":"ok"` 的 JSON，最后一项应显示“正常”。任何一项失败时都不要继续。如果提示 `claude: command not found`，请先安装 Claude Code。
 
-### 11.2 无回显输入 Token 并启动 Claude Code
+### 11.2 把 Token 保存到根目录文件并启动 Claude Code
 
-保持 Web 中的 Token 对话框打开，在项目根目录的终端执行：
+保持 Web 中的 Token 对话框打开。在项目根目录的终端先确认 `.agent-token` 不是符号链接，再创建空文件并限制权限：
 
 ```sh
-printf '%s' '粘贴 Agent Token（输入不回显）: '
-IFS= read -rs AKV_AGENT_TOKEN
-printf '\n'
-export AKV_AGENT_TOKEN
-export AKV_CONTROL_URL=http://127.0.0.1:8080
-export AKV_EXECUTION_URL=http://127.0.0.1:8081
-claude
+if test -L .agent-token; then
+  echo ".agent-token 不能是符号链接，请先手工处理"
+else
+  touch .agent-token
+  chmod 600 .agent-token
+  git check-ignore -q .agent-token && echo ".agent-token：已被 Git 忽略"
+fi
 ```
 
-`read -s` 会让粘贴的 Token 不出现在终端屏幕和 Shell 历史中。`export` 使 Claude Code 及其启动的 HTTP 请求进程可以使用该 Token。不要在 Claude 对话中粘贴 Token，也不要让 Claude 执行 `env`、`printenv`、`set` 或 `set -x`。
+如果看到“`.agent-token 不能是符号链接`”，停止本节，不要粘贴 Token；先手工移走这个符号链接，再重新执行检查。
 
-这是一项明确的 MVP 取舍：Claude Code 运行时持有 Agent Token，如果 Claude Code 进程或同一用户下的其他进程被攻破，持有者可以在 Token 有效期内冒充该 Agent。源 API Key、目标密码和私钥仍然只能由 execution proxy 访问。
+用本地文本编辑器打开根目录的 `.agent-token`，把 Web 页面显示的完整 Agent Token 粘贴为唯一一行并保存。不要用 `echo <Token>` 之类会把 Token 写入 Shell 历史的命令。保存后执行：
+
+```sh
+if chmod 600 .agent-token \
+  && test -f .agent-token \
+  && test ! -L .agent-token \
+  && test -s .agent-token \
+  && git check-ignore -q .agent-token \
+  && test -z "$(git ls-files -- .agent-token)" \
+  && node -e "const s=require('node:fs').lstatSync('.agent-token'); process.exit(s.isFile() && !s.isSymbolicLink() && (s.mode & 0o777) === 0o600 ? 0 : 1)"
+then
+  echo ".agent-token：已安全配置"
+  claude
+else
+  echo ".agent-token 检查失败，请不要启动 Claude Code"
+fi
+```
+
+只有看到“`.agent-token：已安全配置`”后才继续。Claude Code 会按 `CLAUDE.md` 在发请求的同一个进程中读取该文件，不需要再把 Token 导出为环境变量。不得让 Claude 执行 `cat .agent-token` 或其他会显示文件内容的命令。
+
+这是一项明确的 MVP 取舍：Token 会一直留在本地文件中，同一操作系统用户下能读取该文件的进程可以在 Token 有效期内冒充该 Agent。源 API Key、GitLab Token、目标密码和私钥仍然只能由 execution proxy 访问。
 
 ### 11.3 检查直连 API
 
 Claude Code 启动后，输入：
 
 ```text
-请遵守 CLAUDE.md，只检查 AKV_AGENT_TOKEN 是否已设置，不要输出它。然后用该 Token 直接调用 GET /v1/agent/targets，列出可用目标，不要建立任务或执行任何操作。
+请遵守 CLAUDE.md，只检查项目根目录 .agent-token 是否为非空的安全文件，不要输出它的内容。然后用其中的 Token 直接调用 GET /v1/agent/targets，列出可用目标，不要建立任务或执行任何操作。
 ```
 
-Claude Code 应使用 Node `fetch` 或其他能在进程内部读取环境变量的 HTTP 客户端，向 `http://127.0.0.1:8080/v1/agent/targets` 发送 Bearer 请求，并拒绝重定向。不要用会把 Token 展开到进程参数中的 `curl -H` 写法。返回目标列表就表示 Claude Code、Agent Token 和 control API 已经打通。空列表也算认证成功，只是还没有配置可用目标。
+Claude Code 应使用 Node `fs` + `fetch` 或其他能在同一进程内读取文件并发请求的 HTTP 客户端，向 `http://127.0.0.1:8080/v1/agent/targets` 发送 Bearer 请求，并拒绝重定向。不要先输出文件，也不要用会把 Token 展开到进程参数中的 `curl -H` 写法。返回目标列表就表示 Claude Code、Agent Token 和 control API 已经打通。空列表也算认证成功，只是还没有配置可用目标。
 
 ### 11.4 Agent 直连时的职责
 
@@ -502,11 +522,7 @@ GitLab 官方说明见 [REST API 认证](https://docs.gitlab.com/api/rest/authen
 
 先让 Claude Code 在保持心跳的情况下通过任务结束 API 结束活动任务；接口成功返回 204 后，再停止后台心跳并退出 Claude Code 会话。如果会话意外退出而来不及结束任务，Worker 会在连续大约 45 秒收不到心跳后处理失联任务。
 
-回到启动 Claude Code 的终端，清除当前 Shell 中的 Agent Token：
-
-```sh
-unset AKV_AGENT_TOKEN
-```
+退出 Claude Code 后不需要清理环境变量。根目录 `.agent-token` 会保留，方便下次本地演示继续使用。如果以后不再使用这个 Agent，应先在 Web 中撤销它的 Token，再删除本地 `.agent-token`；如果在 Web 中轮换 Token，则用新值覆盖该文件。
 
 再在运行下面进程的终端中分别按 `Ctrl+C`：
 
@@ -543,15 +559,15 @@ chmod 600 /tmp/akv-local/execution/openbao-token
 
 OpenBao 未启动或秘密引擎未启用不会阻止控制服务监听，但会导致创建目标或更新凭证失败。如果 Web 显示凭证写入失败，再检查 OpenBao 的 `8200` 端口、Token 和相应秘密引擎。
 
-### Claude Code 提示 Agent Token 未配置
+### Claude Code 提示 Agent Token 文件未配置
 
-退出 Claude Code，按第 11.2 节重新无回显输入 Token，再从同一个终端启动 Claude Code。不要把 Token 粘贴到对话中，也不要用 `echo`、`env` 或 `printenv` 检查它。
+退出 Claude Code，确认当前目录是项目根目录，并按第 11.2 节检查 `.agent-token` 存在、非空、已被 Git 忽略且权限为 `0600`。不要把 Token 粘贴到对话中，也不要用 `cat`、`head` 或其他命令检查文件内容。
 
-如果刚在 Web 中轮换了 Token，旧 Token 会立即失效。必须退出已有 Claude Code 会话，使用新 Token 重新启动。
+如果刚在 Web 中轮换了 Token，旧 Token 会立即失效。用新 Token 覆盖 `.agent-token`，然后重新启动 Claude Code。
 
 ### 直连 API 返回 401 或调用失败
 
-如果查询目标就返回 `401 UNAUTHORIZED`，请确认 Agent 仍然启用，Token 没有过期、撤销或被轮换，并确认 Claude Code 是从设置了 `AKV_AGENT_TOKEN` 的同一个终端启动的。
+如果查询目标就返回 `401 UNAUTHORIZED`，请确认 Agent 仍然启用，Token 没有过期、撤销或被轮换，并确认 Claude Code 从包含当前 `.agent-token` 的项目根目录启动。
 
 如果查询目标成功，但执行 API 失败，重点检查：
 

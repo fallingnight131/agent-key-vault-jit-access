@@ -109,7 +109,7 @@ onBeforeUnmount(clearToken)
     <form method="dialog">
       <p class="eyebrow">仅显示一次</p>
       <h2>交付 Agent Token</h2>
-      <p>立即安全交给 Agent 运行时。不要写入 Prompt、项目文件或日志；关闭后无法再次查看。</p>
+      <p>本地 MVP 请保存到根目录 .agent-token，并设置为 0600；该文件已被 Git 忽略。不要写入 Prompt、其他文件或日志；关闭后无法再次查看。</p>
       <pre>{{ token }}</pre>
       <button type="submit">我已安全交付</button>
     </form>
