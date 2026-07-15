@@ -1,23 +1,23 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-006`｜下一项：`AKV-006.b`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-006`｜下一项：`AKV-006.c`
 
 ## 恢复点
 
-- HTTP 受控执行已实现先占用、固定目标、代理注入、禁止重定向/重试、30 秒超时和多形式脱敏清零。
-- 下一轮 `AKV-006.b` 实现 PostgreSQL 单语句与预声明事务批次连接器，支持固定和 OpenBao 动态凭证。
-- 单语句 60 秒、事务 5 分钟；仅参数化参数，批次任一步失败回滚，动态 Lease 必须撤销。
+- PostgreSQL 单语句/事务批次、参数化执行、超时、回滚和动态 Lease 无降级生命周期已完成。
+- 下一轮 `AKV-006.c` 实现 Transit 受控签名、独立 execution-proxy 进程入口及执行计划/生命周期持久层。
+- 私钥材料永不读取；签名只接受冻结摘要，返回签名值并对失败使用公共错误码。
 
 ## 当前工作项
 
 下一最小切片：
 
 ```text
-ID / 目标：AKV-006.b / 实现 PostgreSQL 受控执行链
-验收条件：单语句/事务批次预声明；参数化执行；60 秒/5 分钟；失败回滚；动态签发失败零连接且无固定回退；Lease 终态撤销；make verify 通过
-修改范围：PG 执行编排与连接器、数据库/vault fake、测试、memory/progress
+ID / 目标：AKV-006.c / 完成执行面签名与持久化装配
+验收条件：Transit 签名先占用且不导出私钥；执行计划来自冻结请求；Execution 状态持久化；独立进程边界；make verify 通过
+修改范围：签名代理、计划/生命周期仓储、execution-proxy 命令、测试、memory/progress
 验证命令：make verify
-风险 / 下一步：不得把动态用户名/密码放入 DSN 日志或错误；连接工厂用敏感回调构造内存配置
+风险 / 下一步：独立入口不得复用控制面 Vault 写能力；数据库错误只映射公共码
 ```
 
 ## 队列
@@ -29,7 +29,7 @@ ID / 目标：AKV-006.b / 实现 PostgreSQL 受控执行链
 | `AKV-003` | `DONE` | 002 | 人类身份、Agent Token、任务与心跳 |
 | `AKV-004` | `DONE` | 002 | 安全目标/凭证目录与 OpenBao 权限隔离 |
 | `AKV-005` | `DONE` | 003,004 | 不可变申请、审批竞争、绑定 Grant 及 PostgreSQL 原子占用 |
-| `AKV-006` | `IN_PROGRESS` | 005 | HTTP 执行链已完成；待 PostgreSQL 与动态凭证 |
+| `AKV-006` | `IN_PROGRESS` | 005 | HTTP/PG/动态执行链已完成；待 Transit 和持久化装配 |
 | `AKV-007` | `BACKLOG` | 005,006 | 超时、撤销、回收、告警、审计及 180 天清理 |
 | `AKV-008` | `BACKLOG` | 003-007 | MCP 工具和 Web 控制面 |
 | `AKV-009` | `BACKLOG` | 008 | 需求第 5 节全部端到端安全验收与演示 |
@@ -43,7 +43,7 @@ ID / 目标：AKV-006.b / 实现 PostgreSQL 受控执行链
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、代理包 `go test -race` 和 `git diff --check` 通过；占用拒绝时 Vault/目标零调用、成功仅一次注入、反射秘密脱敏清零且重定向未跟随。
+- 2026-07-15：`make verify`、代理包 `go test -race` 和 `git diff --check` 通过；动态签发失败零连接，事务第二步失败回滚、关闭连接并撤销一次 Lease。
 
 ## 最近循环（最多 10 条）
 
@@ -62,6 +62,7 @@ ID / 目标：AKV-006.b / 实现 PostgreSQL 受控执行链
 - 2026-07-15｜`AKV-005.c`：实现完整上下文单调用占用契约及并发/重放安全测试｜下一步 `AKV-005.d`｜计划提交 `feat(authz): guard one-time grant claims`
 - 2026-07-15｜`AKV-005.d`：实现 PostgreSQL 审批事务和单 SQL 占用并通过真实并发测试｜下一步 `AKV-006.a`｜计划提交 `feat(store): persist atomic authorization`
 - 2026-07-15｜`AKV-006.a`：实现先占用的 HTTP 注入、固定目标、无重试/重定向及多形式脱敏清零｜下一步 `AKV-006.b`｜计划提交 `feat(proxy): execute guarded HTTP operations`
+- 2026-07-15｜`AKV-006.b`：实现参数化 PG 单语句/事务、超时回滚和动态凭证无降级 Lease 生命周期｜下一步 `AKV-006.c`｜计划提交 `feat(proxy): execute guarded PostgreSQL operations`
 
 ## MVP 验收
 

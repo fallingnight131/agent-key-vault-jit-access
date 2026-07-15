@@ -41,6 +41,7 @@
 - 2026-07-15：执行守卫只依赖单个 `ClaimApproved` 条件更新能力，完整匹配 Grant/Agent/任务/目标/凭证/操作哈希/期限后才返回；不具备 Vault 或连接器能力。
 - 2026-07-15：PostgreSQL 授权仓储用 serializable 事务原子写审批+Grant；占用用单条联结 `ACTIVE` task 的条件 `UPDATE ... RETURNING`，pgx v5 驱动和临时真实 PostgreSQL race 测试验证并发单赢家。
 - 2026-07-15：HTTP 执行链固定服务端目标并禁止重定向/重试，30 秒超时、1 MiB 响应上限；先占用 Grant 再读 Vault，代理注入认证，响应对原值、URL/Base64/Basic 形式脱敏后返回并清零材料。
+- 2026-07-15：PostgreSQL 执行链仅执行冻结的参数化语句；单语句 60 秒、事务批次 5 分钟且失败回滚；动态角色失败或配置要求动态但元数据不符时零连接/零静态回退，终态关闭连接并撤销 Lease。
 
 ## Agent 维护区
 
