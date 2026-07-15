@@ -36,6 +36,7 @@
 - 2026-07-15：任务 ID 由服务端生成 UUIDv7；心跳建议间隔 15 秒，Worker 在 45 秒边界原子转为 `AGENT_LOST` 并返回待回收任务，不修改 Agent Token。
 - 2026-07-15：目标连接配置使用 HTTP/PostgreSQL 强类型白名单，不接受认证头、URL userinfo 或账号字段；授权申请只提交 `target_id`，服务端解析活动默认凭证。
 - 2026-07-15：OpenBao 能力按进程拆为控制面仅写接口与执行面读取/Transit/动态签发/Lease 撤销接口；敏感值格式化恒为 `[REDACTED]` 且支持原地清零，动态签发失败绝不回退静态读取。
+- 2026-07-15：授权申请只接受 `task_id`、`target_id`、理由和强类型操作；服务端解析 `credential_id`，以确定性 JSON 对 Agent/任务/目标/凭证/操作整体做 SHA-256 快照，审批等待固定 30 分钟。
 
 ## Agent 维护区
 
