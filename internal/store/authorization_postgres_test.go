@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fallingnight/akv/internal/authorization"
+	"github.com/fallingnight/akv/internal/domain"
 	"github.com/fallingnight/akv/internal/identity"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -61,6 +62,14 @@ func TestPostgreSQLAuthorizationConcurrency(t *testing.T) {
 	assertDecisionRows(t, database)
 
 	seedApprovedGrant(t, database)
+	executionRepository := NewPostgreSQLExecutionRepository(database)
+	plan, err := executionRepository.LoadPlan(context.Background(), testClaimRequest)
+	if err != nil {
+		t.Fatalf("LoadPlan() error = %v", err)
+	}
+	if plan.GrantID != testGrantID || plan.Credential.ID != testCredentialID || plan.Operation.Kind != authorization.OperationHTTP {
+		t.Fatalf("loaded plan = %+v", plan)
+	}
 	guard := authorization.NewExecutionGuard(repository)
 	claim := authorization.ClaimContext{
 		GrantID: testGrantID, AgentID: testAgentID, TaskID: testTaskID,
@@ -91,6 +100,20 @@ func TestPostgreSQLAuthorizationConcurrency(t *testing.T) {
 	}
 	if winners != 1 || conflicts != contenders-1 {
 		t.Fatalf("claim winners=%d denied=%d", winners, conflicts)
+	}
+	executionID, err := executionRepository.Start(context.Background(), authorization.Grant{ID: testGrantID}, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := executionRepository.Finish(context.Background(), executionID, domain.ExecutionSucceeded, time.Now().UTC(), ""); err != nil {
+		t.Fatalf("Finish() error = %v", err)
+	}
+	var executionStatus, grantStatus string
+	if err := database.QueryRow(`SELECT e.status, g.status FROM executions e JOIN operation_grants g ON g.id=e.grant_id WHERE e.id=$1`, executionID).Scan(&executionStatus, &grantStatus); err != nil {
+		t.Fatalf("read execution lifecycle: %v", err)
+	}
+	if executionStatus != "SUCCEEDED" || grantStatus != "SUCCEEDED" {
+		t.Fatalf("execution status=%s grant status=%s", executionStatus, grantStatus)
 	}
 	if _, err := guard.Claim(context.Background(), claim); !errors.Is(err, authorization.ErrClaimDenied) {
 		t.Fatalf("replay Claim() error = %v", err)
@@ -124,7 +147,7 @@ func seedAuthorizationDatabase(t *testing.T, database *sql.DB) {
 		{`INSERT INTO users (id, username, password_hash, status) VALUES ($1, 'owner', 'fixture-hash', 'ACTIVE')`, []any{testUserID}},
 		{`INSERT INTO agents (id, owner_user_id, name, status) VALUES ($1, $2, 'agent', 'ACTIVE')`, []any{testAgentID, testUserID}},
 		{`INSERT INTO tasks (id, agent_id, status, created_at, last_heartbeat_at) VALUES ($1, $2, 'ACTIVE', $3, $3)`, []any{testTaskID, testAgentID, now}},
-		{`INSERT INTO targets (id, name, connector_type, connection_config, status) VALUES ($1, 'target', 'HTTP', '{}', 'ACTIVE')`, []any{testTargetID}},
+		{`INSERT INTO targets (id, name, connector_type, connection_config, status) VALUES ($1, 'target', 'HTTP', '{"base_url":"https://target.example.test","allowed_http_methods":["POST"]}', 'ACTIVE')`, []any{testTargetID}},
 		{`INSERT INTO credentials (id, target_id, alias, credential_type, status, vault_provider, vault_path) VALUES ($1, $2, 'default', 'API_KEY', 'ACTIVE', 'OPENBAO', 'kv/data/fixture')`, []any{testCredentialID, testTargetID}},
 		{`UPDATE targets SET default_credential_id = $1 WHERE id = $2`, []any{testCredentialID, testTargetID}},
 		{`INSERT INTO authorization_requests (id, agent_id, task_id, target_id, credential_id, operation, parameters, operation_hash, reason, status, created_at, approval_deadline) VALUES ($1,$2,$3,$4,$5,'HTTP','{}',$6,'fixture reason','PENDING_APPROVAL',$7,$8)`, []any{testRequestID, testAgentID, testTaskID, testTargetID, testCredentialID, testOperationHash[:], now, now.Add(authorization.ApprovalWait)}},
@@ -159,7 +182,7 @@ func seedApprovedGrant(t *testing.T, database *sql.DB) {
 	now := time.Now().UTC()
 	_, err := database.Exec(`
 INSERT INTO authorization_requests (id, agent_id, task_id, target_id, credential_id, operation, parameters, operation_hash, reason, status, created_at, approval_deadline)
-VALUES ($1,$2,$3,$4,$5,'HTTP','{}',$6,'claim fixture','APPROVED',$7,$8)`,
+VALUES ($1,$2,$3,$4,$5,'HTTP','{"kind":"HTTP","http":{"method":"POST","path":"/execute"}}',$6,'claim fixture','APPROVED',$7,$8)`,
 		testClaimRequest, testAgentID, testTaskID, testTargetID, testCredentialID,
 		testOperationHash[:], now, now.Add(authorization.MaximumGrantTTL),
 	)

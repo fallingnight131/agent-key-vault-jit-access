@@ -39,13 +39,13 @@ const (
 )
 
 type ConnectionConfig struct {
-	BaseURL            string
-	AllowedHTTPMethods []string
-	Host               string
-	Port               uint16
-	Database           string
-	TLSMode            string
-	RequireDynamic     bool
+	BaseURL            string   `json:"base_url,omitempty"`
+	AllowedHTTPMethods []string `json:"allowed_http_methods,omitempty"`
+	Host               string   `json:"host,omitempty"`
+	Port               uint16   `json:"port,omitempty"`
+	Database           string   `json:"database,omitempty"`
+	TLSMode            string   `json:"tls_mode,omitempty"`
+	RequireDynamic     bool     `json:"require_dynamic,omitempty"`
 }
 
 type Target struct {

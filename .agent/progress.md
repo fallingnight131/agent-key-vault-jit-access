@@ -1,23 +1,23 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-006`｜下一项：`AKV-006.d`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-006`｜下一项：`AKV-006.e`
 
 ## 恢复点
 
-- Transit 受控签名已实现先占用后调用，执行面不存在私钥读取路径且只返回签名。
-- 下一轮 `AKV-006.d` 实现冻结执行计划与 Execution 生命周期 PostgreSQL 仓储，并建立独立 execution-proxy 入口。
-- 执行持久层完成前不标记 `AKV-006`；外部错误继续只映射公共错误码。
+- 冻结执行计划、Execution/Grant 同事务终态和独立 execution-proxy 进程边界已通过真实 PostgreSQL 验证。
+- 下一轮 `AKV-006.e` 实现 OpenBao HTTP 执行客户端、pgx 目标连接工厂和受认证执行路由的实际装配。
+- 进程入口目前只有健康端点；真实适配器和受保护路由完成前不标记 `AKV-006`。
 
 ## 当前工作项
 
 下一最小切片：
 
 ```text
-ID / 目标：AKV-006.d / 持久化并装配独立执行面
-验收条件：执行计划从冻结请求/Grant/目录联结读取；Execution 状态原子持久化；独立命令只持执行 Vault 能力；make verify 通过
-修改范围：计划/生命周期 PostgreSQL 仓储、execution-proxy 命令、集成测试、memory/progress
+ID / 目标：AKV-006.e / 装配真实执行适配器与路由
+验收条件：OpenBao 执行身份仅读/签名/动态签发/撤销；pgx 目标连接不泄密；执行路由认证 Agent 并调用对应代理；make verify 通过
+修改范围：OpenBao/pgx 适配器、execution-proxy 配置与路由、集成测试、memory/progress
 验证命令：make verify
-风险 / 下一步：独立入口不得复用控制面 Vault 写能力；数据库错误只映射公共码
+风险 / 下一步：Token/数据库密码只从 0600 文件或短生命周期对象读取，不得进入环境变量、日志或 DSN 错误
 ```
 
 ## 队列
@@ -29,7 +29,7 @@ ID / 目标：AKV-006.d / 持久化并装配独立执行面
 | `AKV-003` | `DONE` | 002 | 人类身份、Agent Token、任务与心跳 |
 | `AKV-004` | `DONE` | 002 | 安全目标/凭证目录与 OpenBao 权限隔离 |
 | `AKV-005` | `DONE` | 003,004 | 不可变申请、审批竞争、绑定 Grant 及 PostgreSQL 原子占用 |
-| `AKV-006` | `IN_PROGRESS` | 005 | HTTP/PG/动态/Transit 已完成；待持久化装配 |
+| `AKV-006` | `IN_PROGRESS` | 005 | 核心执行与持久化已完成；待真实适配器和受保护路由 |
 | `AKV-007` | `BACKLOG` | 005,006 | 超时、撤销、回收、告警、审计及 180 天清理 |
 | `AKV-008` | `BACKLOG` | 003-007 | MCP 工具和 Web 控制面 |
 | `AKV-009` | `BACKLOG` | 008 | 需求第 5 节全部端到端安全验收与演示 |
@@ -43,18 +43,10 @@ ID / 目标：AKV-006.d / 持久化并装配独立执行面
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、代理包 `go test -race` 和 `git diff --check` 通过；Transit 占用拒绝零调用，成功只传批准摘要并仅返回签名。
+- 2026-07-15：`make verify`、`git diff --check` 和 `make test-migrations-postgres` 通过；冻结计划加载及 Execution/Grant 同步 `SUCCEEDED` 已在真实 PostgreSQL 验证。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜文档基线：建立并精简自主循环、记忆和进度规则｜下一步 `AKV-001`｜计划提交 `docs(agent): establish autonomous workflow`
-- 2026-07-15｜`AKV-001.a`：建立 Git 与安全 `.gitignore`，提交项目文档基线｜下一步 `AKV-001.b`｜提交 `chore(repo): establish AKV MVP baseline`
-- 2026-07-15｜`AKV-001.b`：建立 Go 控制服务骨架、健康检查和统一验证入口｜下一步 `AKV-002.a`｜计划提交 `feat(control): bootstrap control service`
-- 2026-07-15｜`AKV-002.a`：建立核心 schema、校验和迁移器及真实 PostgreSQL 验证｜下一步 `AKV-002.b`｜计划提交 `feat(store): add core database schema`
-- 2026-07-15｜`AKV-002.b`：实现任务、申请、Grant、执行和回收的默认拒绝状态矩阵｜下一步 `AKV-003.a`｜计划提交 `feat(domain): enforce lifecycle transitions`
-- 2026-07-15｜`AKV-003.a`：实现 bcrypt、唯一初始化、Session 哈希和人类权限核心服务｜下一步 `AKV-003.b`｜计划提交 `feat(identity): add human authentication core`
-- 2026-07-15｜`AKV-003.b`：实现 Agent Token 三档有效期、哈希认证、原子轮换接口和停用｜下一步 `AKV-003.c`｜计划提交 `feat(agent): enforce token lifecycle`
-- 2026-07-15｜`AKV-003.c`：实现 UUIDv7 任务、Agent 绑定、活动心跳和 45 秒失联扫描｜下一步 `AKV-004.a`｜计划提交 `feat(task): add managed task sessions`
 - 2026-07-15｜`AKV-004.a`：实现管理员目录、认证发现、安全连接白名单和服务端默认凭证｜下一步 `AKV-004.b`｜计划提交 `feat(catalog): add safe target catalog`
 - 2026-07-15｜`AKV-004.b`：隔离 OpenBao 控制/执行能力并实现敏感清零和动态无降级｜下一步 `AKV-005.a`｜计划提交 `feat(vault): isolate OpenBao capabilities`
 - 2026-07-15｜`AKV-005.a`：实现活动任务校验、服务端凭证、强类型操作和不可变上下文哈希｜下一步 `AKV-005.b`｜计划提交 `feat(authz): create immutable requests`
@@ -64,6 +56,7 @@ ID / 目标：AKV-006.d / 持久化并装配独立执行面
 - 2026-07-15｜`AKV-006.a`：实现先占用的 HTTP 注入、固定目标、无重试/重定向及多形式脱敏清零｜下一步 `AKV-006.b`｜计划提交 `feat(proxy): execute guarded HTTP operations`
 - 2026-07-15｜`AKV-006.b`：实现参数化 PG 单语句/事务、超时回滚和动态凭证无降级 Lease 生命周期｜下一步 `AKV-006.c`｜计划提交 `feat(proxy): execute guarded PostgreSQL operations`
 - 2026-07-15｜`AKV-006.c`：实现先占用的 Transit 摘要签名且无私钥读取路径｜下一步 `AKV-006.d`｜计划提交 `feat(proxy): execute guarded Transit signatures`
+- 2026-07-15｜`AKV-006.d`：持久化冻结计划与 Execution 终态并建立独立执行进程｜下一步 `AKV-006.e`｜计划提交 `feat(store): persist execution lifecycle`
 
 ## MVP 验收
 
