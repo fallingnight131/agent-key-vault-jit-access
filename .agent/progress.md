@@ -1,23 +1,23 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-005`｜下一项：`AKV-005.c`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-005`｜下一项：`AKV-005.d`
 
 ## 恢复点
 
-- 审批权限、首个终态决定竞争、拒绝/过期零 Grant 和批准同事务绑定 Grant 已完成。
-- 下一轮 `AKV-005.c` 实现执行前完整上下文校验与 Grant 原子占用，并覆盖并发/重放/跨 Agent/跨任务/过期/撤销。
-- 原子占用成功之前执行服务不得访问 OpenBao 或目标；失败路径外部调用计数必须为零。
+- 执行守卫已实现单调用原子占用契约，并发/重放/跨上下文/过期/撤销/非活动任务均有 race 测试。
+- 下一轮 `AKV-005.d` 用 PostgreSQL 条件更新/事务实现审批竞争和 Grant 占用仓储，并在真实数据库并发验证。
+- 完成持久层并发证据前 `AKV-005` 不标记完成；fake 只证明服务契约。
 
 ## 当前工作项
 
 下一最小切片：
 
 ```text
-ID / 目标：AKV-005.c / 实现一次性 Grant 原子占用
-验收条件：Agent/任务/目标/凭证/操作哈希/状态/期限全匹配才原子占用；并发唯一成功；重放、跨上下文、过期、撤销拒绝；make verify/race 通过
-修改范围：执行守卫、原子仓储接口/fake、并发安全测试、memory/progress
+ID / 目标：AKV-005.d / 实现 PostgreSQL 审批与占用仓储
+验收条件：审批+Grant 同事务；首个审批单赢家；单 SQL 完整上下文占用；真实 PostgreSQL 并发/重放测试；make verify 通过
+修改范围：PostgreSQL 驱动、授权仓储、集成测试/脚本、memory/progress
 验证命令：make verify
-风险 / 下一步：只允许单个持久层条件更新从 APPROVED 到 EXECUTING；不得先取 Vault 再占用
+风险 / 下一步：SQL 必须联结 ACTIVE task 并用 `status='APPROVED' AND expires_at>now`；零行统一拒绝
 ```
 
 ## 队列
@@ -28,7 +28,7 @@ ID / 目标：AKV-005.c / 实现一次性 Grant 原子占用
 | `AKV-002` | `DONE` | 001 | 核心 schema、迁移机制及默认拒绝的状态转换 |
 | `AKV-003` | `DONE` | 002 | 人类身份、Agent Token、任务与心跳 |
 | `AKV-004` | `DONE` | 002 | 安全目标/凭证目录与 OpenBao 权限隔离 |
-| `AKV-005` | `IN_PROGRESS` | 003,004 | 申请和审批竞争已完成；待 Grant 原子占用 |
+| `AKV-005` | `IN_PROGRESS` | 003,004 | 服务契约已完成；待 PostgreSQL 原子仓储验证 |
 | `AKV-006` | `BACKLOG` | 005 | 受控代理、脱敏、HTTP/PG 连接器、动态凭证 |
 | `AKV-007` | `BACKLOG` | 005,006 | 超时、撤销、回收、告警、审计及 180 天清理 |
 | `AKV-008` | `BACKLOG` | 003-007 | MCP 工具和 Web 控制面 |
@@ -43,7 +43,7 @@ ID / 目标：AKV-005.c / 实现一次性 Grant 原子占用
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、授权包 `go test -race` 和 `git diff --check` 通过；审批测试覆盖权限矩阵、默认/缩短 TTL、拒绝/过期零 Grant 及并发单赢家。
+- 2026-07-15：`make verify`、授权包 `go test -race` 和 `git diff --check` 通过；32 路并发占用仅一成功，重放及每个上下文字段错配均拒绝。
 
 ## 最近循环（最多 10 条）
 
@@ -59,6 +59,7 @@ ID / 目标：AKV-005.c / 实现一次性 Grant 原子占用
 - 2026-07-15｜`AKV-004.b`：隔离 OpenBao 控制/执行能力并实现敏感清零和动态无降级｜下一步 `AKV-005.a`｜计划提交 `feat(vault): isolate OpenBao capabilities`
 - 2026-07-15｜`AKV-005.a`：实现活动任务校验、服务端凭证、强类型操作和不可变上下文哈希｜下一步 `AKV-005.b`｜计划提交 `feat(authz): create immutable requests`
 - 2026-07-15｜`AKV-005.b`：实现审批权限、首个决定竞争及批准同事务 Grant｜下一步 `AKV-005.c`｜计划提交 `feat(authz): enforce approval competition`
+- 2026-07-15｜`AKV-005.c`：实现完整上下文单调用占用契约及并发/重放安全测试｜下一步 `AKV-005.d`｜计划提交 `feat(authz): guard one-time grant claims`
 
 ## MVP 验收
 
