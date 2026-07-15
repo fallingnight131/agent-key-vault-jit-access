@@ -3,8 +3,9 @@ package control
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
+	"mime"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/fallingnight/akv/internal/identity"
@@ -17,6 +18,7 @@ const (
 )
 
 type WebIdentity interface {
+	Register(context.Context, string, string, time.Duration) (identity.Session, error)
 	Login(context.Context, string, string, time.Duration) (identity.Session, error)
 	AuthenticateSession(context.Context, string) (identity.User, error)
 	Logout(context.Context, string) error
@@ -35,6 +37,7 @@ type WebRuntime struct {
 
 func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
 	runtime.config = config
+	mux.HandleFunc("POST /v1/web/register", runtime.register)
 	mux.HandleFunc("POST /v1/web/login", runtime.login)
 	mux.HandleFunc("GET /v1/web/me", runtime.me)
 	mux.HandleFunc("POST /v1/web/logout", runtime.logout)
@@ -66,8 +69,39 @@ func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
 	}
 }
 
+func (runtime *WebRuntime) register(response http.ResponseWriter, request *http.Request) {
+	if !runtime.sameOrigin(request) || !hasJSONContentType(request) {
+		writeJSON(response, http.StatusForbidden, map[string]string{"error": "FORBIDDEN"})
+		return
+	}
+	var input struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if !decodeStrict(response, request, &input) {
+		return
+	}
+	session, err := runtime.Identity.Register(request.Context(), input.Username, input.Password, webSessionTTL)
+	if err != nil {
+		switch {
+		case errors.Is(err, identity.ErrInvalidInput):
+			writeJSON(response, http.StatusBadRequest, map[string]string{"error": "INVALID_REGISTRATION"})
+		case errors.Is(err, identity.ErrUsernameUnavailable):
+			writeJSON(response, http.StatusConflict, map[string]string{"error": "USERNAME_UNAVAILABLE"})
+		case errors.Is(err, identity.ErrRegistrationUnavailable):
+			writeJSON(response, http.StatusServiceUnavailable, map[string]string{"error": "REGISTRATION_UNAVAILABLE"})
+		default:
+			writeJSON(response, http.StatusInternalServerError, map[string]string{"error": "INTERNAL"})
+		}
+		return
+	}
+	runtime.setCookie(response, webSessionCookie, session.Token, session.ExpiresAt, true)
+	runtime.setCookie(response, webCSRFCookie, session.CSRFToken, session.ExpiresAt, false)
+	writeJSON(response, http.StatusCreated, publicUserDTO(session.User))
+}
+
 func (runtime *WebRuntime) login(response http.ResponseWriter, request *http.Request) {
-	if !runtime.sameOrigin(request) || !strings.HasPrefix(request.Header.Get("Content-Type"), "application/json") {
+	if !runtime.sameOrigin(request) || !hasJSONContentType(request) {
 		writeJSON(response, http.StatusForbidden, map[string]string{"error": "FORBIDDEN"})
 		return
 	}
@@ -140,6 +174,11 @@ func (runtime *WebRuntime) validCSRF(request *http.Request) bool {
 func (runtime *WebRuntime) sameOrigin(request *http.Request) bool {
 	origin := request.Header.Get("Origin")
 	return origin == "" || origin == runtime.config.PublicOrigin
+}
+
+func hasJSONContentType(request *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	return err == nil && mediaType == "application/json"
 }
 
 func (runtime *WebRuntime) setCookie(response http.ResponseWriter, name, value string, expires time.Time, httpOnly bool) {

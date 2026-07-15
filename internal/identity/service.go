@@ -9,15 +9,18 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 var (
-	ErrAlreadyInitialized = errors.New("identity already initialized")
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrInvalidInput       = errors.New("invalid identity input")
-	ErrNotFound           = errors.New("identity not found")
+	ErrAlreadyInitialized      = errors.New("identity already initialized")
+	ErrInvalidCredentials      = errors.New("invalid credentials")
+	ErrInvalidInput            = errors.New("invalid identity input")
+	ErrNotFound                = errors.New("identity not found")
+	ErrRegistrationUnavailable = errors.New("registration unavailable")
+	ErrUsernameUnavailable     = errors.New("username unavailable")
 )
 
 type User struct {
@@ -63,12 +66,45 @@ type Session struct {
 
 type Repository interface {
 	CreateInitialAdmin(context.Context, AccountRecord) error
+	CreateAccountAndSession(context.Context, AccountRecord, SessionRecord) error
 	FindActiveAccountByUsername(context.Context, string) (AccountRecord, error)
 	CreateSession(context.Context, SessionRecord) error
 	FindActiveSessionByTokenHash(context.Context, [sha256.Size]byte, time.Time) (User, error)
 	RevokeSession(context.Context, [sha256.Size]byte, time.Time) error
 	ListUsers(context.Context) ([]User, error)
 	UpdateNonAdminUser(context.Context, string, bool, bool, time.Time) error
+}
+
+func (service *Service) Register(ctx context.Context, username, password string, lifetime time.Duration) (Session, error) {
+	username = strings.TrimSpace(username)
+	passwordLength := len([]byte(password))
+	if username == "" || !utf8.ValidString(username) || utf8.RuneCountInString(username) > 64 ||
+		!utf8.ValidString(password) || utf8.RuneCountInString(password) < 8 || passwordLength > 72 || lifetime <= 0 {
+		return Session{}, ErrInvalidInput
+	}
+	userID, err := service.newID()
+	if err != nil {
+		return Session{}, fmt.Errorf("generate user ID: %w", err)
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return Session{}, fmt.Errorf("hash password: %w", err)
+	}
+	record := AccountRecord{
+		ID: userID, Username: username, PasswordHash: passwordHash,
+		IsAdmin: false, ApproveAll: false, Active: true, CreatedAt: service.now(),
+	}
+	sessionRecord, session, err := service.prepareSession(record, lifetime)
+	if err != nil {
+		return Session{}, err
+	}
+	if err := service.repository.CreateAccountAndSession(ctx, record, sessionRecord); err != nil {
+		if errors.Is(err, ErrRegistrationUnavailable) || errors.Is(err, ErrUsernameUnavailable) {
+			return Session{}, err
+		}
+		return Session{}, fmt.Errorf("create account and session: %w", err)
+	}
+	return session, nil
 }
 
 type Service struct {
@@ -120,7 +156,8 @@ func (service *Service) BootstrapAdmin(ctx context.Context, username, password s
 }
 
 func (service *Service) Login(ctx context.Context, username, password string, lifetime time.Duration) (Session, error) {
-	if strings.TrimSpace(username) == "" || password == "" || lifetime <= 0 {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" || lifetime <= 0 {
 		return Session{}, ErrInvalidInput
 	}
 	record, err := service.repository.FindActiveAccountByUsername(ctx, username)
@@ -135,27 +172,37 @@ func (service *Service) Login(ctx context.Context, username, password string, li
 		return Session{}, ErrInvalidCredentials
 	}
 
+	sessionRecord, session, err := service.prepareSession(record, lifetime)
+	if err != nil {
+		return Session{}, err
+	}
+	if err := service.repository.CreateSession(ctx, sessionRecord); err != nil {
+		return Session{}, fmt.Errorf("create session: %w", err)
+	}
+	return session, nil
+}
+
+func (service *Service) prepareSession(record AccountRecord, lifetime time.Duration) (SessionRecord, Session, error) {
 	id, err := service.newID()
 	if err != nil {
-		return Session{}, fmt.Errorf("generate session ID: %w", err)
+		return SessionRecord{}, Session{}, fmt.Errorf("generate session ID: %w", err)
 	}
 	token, err := service.newToken()
 	if err != nil {
-		return Session{}, fmt.Errorf("generate session token: %w", err)
+		return SessionRecord{}, Session{}, fmt.Errorf("generate session token: %w", err)
 	}
 	csrfToken, err := service.newToken()
 	if err != nil {
-		return Session{}, fmt.Errorf("generate CSRF token: %w", err)
+		return SessionRecord{}, Session{}, fmt.Errorf("generate CSRF token: %w", err)
 	}
 	now := service.now()
 	sessionRecord := SessionRecord{
 		ID: id, UserID: record.ID, TokenHash: sha256.Sum256([]byte(token)),
 		CreatedAt: now, ExpiresAt: now.Add(lifetime),
 	}
-	if err := service.repository.CreateSession(ctx, sessionRecord); err != nil {
-		return Session{}, fmt.Errorf("create session: %w", err)
-	}
-	return Session{Token: token, CSRFToken: csrfToken, ExpiresAt: sessionRecord.ExpiresAt, User: publicUser(record)}, nil
+	return sessionRecord, Session{
+		Token: token, CSRFToken: csrfToken, ExpiresAt: sessionRecord.ExpiresAt, User: publicUser(record),
+	}, nil
 }
 
 func (service *Service) AuthenticateSession(ctx context.Context, token string) (User, error) {

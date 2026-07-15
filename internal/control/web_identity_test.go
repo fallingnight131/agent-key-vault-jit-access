@@ -15,7 +15,25 @@ import (
 )
 
 type webIdentityFake struct {
-	revoked bool
+	revoked          bool
+	registerError    error
+	registerCalls    int
+	registerLifetime time.Duration
+}
+
+func (fake *webIdentityFake) Register(_ context.Context, username, password string, lifetime time.Duration) (identity.Session, error) {
+	fake.registerCalls++
+	fake.registerLifetime = lifetime
+	if fake.registerError != nil {
+		return identity.Session{}, fake.registerError
+	}
+	if username != "new-user" || password != "strong-password" {
+		return identity.Session{}, identity.ErrInvalidInput
+	}
+	return identity.Session{
+		Token: "registration-session-secret", CSRFToken: "registration-csrf-token", ExpiresAt: time.Now().Add(lifetime),
+		User: identity.User{ID: "registered-user", Username: username, OwnerActive: true},
+	}, nil
 }
 
 func (fake *webIdentityFake) Login(_ context.Context, username, password string, _ time.Duration) (identity.Session, error) {
@@ -41,6 +59,85 @@ func (fake *webIdentityFake) Logout(_ context.Context, token string) error {
 	}
 	fake.revoked = true
 	return nil
+}
+
+func TestWebRegisterCreatesOrdinarySessionWithProtectedCookies(t *testing.T) {
+	identityFake := &webIdentityFake{}
+	server := testWebServer(identityFake, true)
+	request := httptest.NewRequest(http.MethodPost, "/v1/web/register", strings.NewReader(`{"username":"new-user","password":"strong-password"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "https://akv.example.test")
+	response := httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+
+	body := response.Body.String()
+	if response.Code != http.StatusCreated || strings.Contains(body, "registration-session-secret") || strings.Contains(body, "registration-csrf-token") {
+		t.Fatalf("status=%d body=%q", response.Code, body)
+	}
+	for _, want := range []string{`"username":"new-user"`, `"is_admin":false`, `"approve_all":false`, `"owner_active":true`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body=%q does not contain %q", body, want)
+		}
+	}
+	if identityFake.registerCalls != 1 || identityFake.registerLifetime != webSessionTTL {
+		t.Fatalf("register calls=%d lifetime=%v", identityFake.registerCalls, identityFake.registerLifetime)
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 2 || cookies[0].Name != webSessionCookie || !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteStrictMode || cookies[1].Name != webCSRFCookie || cookies[1].HttpOnly || !cookies[1].Secure || cookies[1].SameSite != http.SameSiteStrictMode {
+		t.Fatalf("cookies = %+v", cookies)
+	}
+}
+
+func TestWebRegisterRejectsUnsafeOrUnexpectedRequests(t *testing.T) {
+	for name, fixture := range map[string]struct {
+		origin      string
+		contentType string
+		body        string
+		status      int
+	}{
+		"cross origin":            {"https://evil.example", "application/json", `{"username":"new-user","password":"strong-password"}`, http.StatusForbidden},
+		"non JSON":                {"https://akv.example.test", "text/plain", `{"username":"new-user","password":"strong-password"}`, http.StatusForbidden},
+		"invalid JSON media type": {"https://akv.example.test", "application/jsonfoo", `{"username":"new-user","password":"strong-password"}`, http.StatusForbidden},
+		"unknown field":           {"https://akv.example.test", "application/json", `{"username":"new-user","password":"strong-password","is_admin":true}`, http.StatusBadRequest},
+	} {
+		t.Run(name, func(t *testing.T) {
+			identityFake := &webIdentityFake{}
+			server := testWebServer(identityFake, false)
+			request := httptest.NewRequest(http.MethodPost, "/v1/web/register", strings.NewReader(fixture.body))
+			request.Header.Set("Content-Type", fixture.contentType)
+			request.Header.Set("Origin", fixture.origin)
+			response := httptest.NewRecorder()
+			server.Handler.ServeHTTP(response, request)
+			if response.Code != fixture.status || identityFake.registerCalls != 0 {
+				t.Fatalf("status=%d calls=%d body=%q", response.Code, identityFake.registerCalls, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestWebRegisterMapsIdentityErrors(t *testing.T) {
+	for name, fixture := range map[string]struct {
+		err    error
+		status int
+		code   string
+	}{
+		"invalid input":            {identity.ErrInvalidInput, http.StatusBadRequest, "INVALID_REGISTRATION"},
+		"username unavailable":     {identity.ErrUsernameUnavailable, http.StatusConflict, "USERNAME_UNAVAILABLE"},
+		"registration unavailable": {identity.ErrRegistrationUnavailable, http.StatusServiceUnavailable, "REGISTRATION_UNAVAILABLE"},
+		"internal failure":         {errors.New("unavailable"), http.StatusInternalServerError, "INTERNAL"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := testWebServer(&webIdentityFake{registerError: fixture.err}, false)
+			request := httptest.NewRequest(http.MethodPost, "/v1/web/register", strings.NewReader(`{"username":"new-user","password":"strong-password"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "https://akv.example.test")
+			response := httptest.NewRecorder()
+			server.Handler.ServeHTTP(response, request)
+			if response.Code != fixture.status || !strings.Contains(response.Body.String(), `"error":"`+fixture.code+`"`) || len(response.Result().Cookies()) != 0 {
+				t.Fatalf("status=%d cookies=%+v body=%q", response.Code, response.Result().Cookies(), response.Body.String())
+			}
+		})
+	}
 }
 
 func TestWebLoginUsesProtectedCookiesAndNoTokenBody(t *testing.T) {
@@ -119,6 +216,9 @@ func testWebServer(identityService WebIdentity, secure bool) *http.Server {
 
 type failingWebIdentity struct{}
 
+func (*failingWebIdentity) Register(context.Context, string, string, time.Duration) (identity.Session, error) {
+	return identity.Session{}, errors.New("unavailable")
+}
 func (*failingWebIdentity) Login(context.Context, string, string, time.Duration) (identity.Session, error) {
 	return identity.Session{}, errors.New("unavailable")
 }

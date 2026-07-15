@@ -32,7 +32,7 @@ make build
 2. 配置 OpenBao KV v2、Transit、Database Secrets Engine 与 Audit Device；分别签发 `control-policy.hcl` 和 `execution-policy.hcl` 对应的非 Root Token，并写入各自 `0600` 文件。
 3. 复制 `.env.example` 中的非秘密地址和文件路径到进程管理器。生产公开源使用 HTTPS，并保持 `AKV_CONTROL_COOKIE_SECURE=true`。
 4. 在交互终端执行 `bin/akv-bootstrap-admin -username <name>`；密码会无回显读取两次，不能从管道输入。
-5. 启动 control、execution proxy 和 worker，浏览 `http://127.0.0.1:8080/`；管理员可录入 HTTP/PostgreSQL 目标、全部 MVP 凭证类型并查看全局审计，用户可注册 Agent 并立即保存只显示一次的 Token。
+5. 启动 control、execution proxy 和 worker，浏览 `http://127.0.0.1:8080/`；MVP 允许账号密码自助注册普通用户，管理员可录入 HTTP/PostgreSQL 目标、全部 MVP 凭证类型并查看全局审计，用户可注册 Agent 并立即保存只显示一次的 Token。自助注册版本不要直接暴露到不可信网络。
 6. 让部署系统把该 Token 写入 MCP 专用 `0600` 文件，然后启动 `bin/akv-mcp-server`。stdout 专用于 MCP JSON-RPC。
 
 所有进程收到 `SIGINT`/`SIGTERM` 后会停止；MCP 退出后心跳停止，Worker 在 45 秒边界将任务标为 `AGENT_LOST` 并撤销未完成授权。

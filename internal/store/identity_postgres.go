@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/fallingnight/akv/internal/identity"
@@ -24,6 +25,40 @@ func (repository *PostgreSQLIdentityRepository) CreateInitialAdmin(ctx context.C
 		return identity.ErrAlreadyInitialized
 	}
 	return err
+}
+
+func (repository *PostgreSQLIdentityRepository) CreateAccountAndSession(ctx context.Context, account identity.AccountRecord, session identity.SessionRecord) error {
+	transaction, err := repository.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin account registration: %w", err)
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	result, err := transaction.ExecContext(ctx, `
+INSERT INTO users (id,username,password_hash,is_admin,approve_all,status,created_at,updated_at)
+SELECT $1,$2,$3,false,false,'ACTIVE',$4,$4
+WHERE EXISTS (SELECT 1 FROM users WHERE is_admin=true AND status='ACTIVE')`, account.ID, account.Username, string(account.PasswordHash), account.CreatedAt)
+	if err != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "users_username_key" {
+			return identity.ErrUsernameUnavailable
+		}
+		return fmt.Errorf("insert registered account: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read registered account result: %w", err)
+	}
+	if rows != 1 {
+		return identity.ErrRegistrationUnavailable
+	}
+	if _, err := transaction.ExecContext(ctx, `INSERT INTO web_sessions (id,user_id,token_hash,expires_at,created_at) VALUES ($1,$2,$3,$4,$5)`, session.ID, session.UserID, session.TokenHash[:], session.ExpiresAt, session.CreatedAt); err != nil {
+		return fmt.Errorf("insert registration session: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit account registration: %w", err)
+	}
+	return nil
 }
 
 func (repository *PostgreSQLIdentityRepository) FindActiveAccountByUsername(ctx context.Context, username string) (identity.AccountRecord, error) {

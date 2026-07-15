@@ -3,6 +3,13 @@ export function csrfFromCookie(cookie) {
   return item ? decodeURIComponent(item.split('=').slice(1).join('=')) : ''
 }
 
+const publicErrorMessages = {
+  INVALID_CREDENTIALS: '用户名或密码错误',
+  INVALID_REGISTRATION: '用户名或密码不符合注册要求',
+  REGISTRATION_UNAVAILABLE: '系统尚未初始化，请先创建管理员账号',
+  USERNAME_UNAVAILABLE: '用户名已被使用，请换一个',
+}
+
 export function createAPI({
   fetchImpl = globalThis.fetch.bind(globalThis),
   cookieSource = () => document.cookie,
@@ -24,10 +31,6 @@ export function createAPI({
       method,
       headers,
     })
-    if (response.status === 401) {
-      onUnauthorized()
-      throw new Error('请重新登录')
-    }
     if (!response.ok) {
       let body = {}
       try {
@@ -35,7 +38,11 @@ export function createAPI({
       } catch {
         // The public fallback below intentionally hides non-JSON server bodies.
       }
-      throw new Error(body.error || `请求失败 (${response.status})`)
+      if (response.status === 401) onUnauthorized()
+      const fallback = response.status === 401
+        ? '请重新登录'
+        : (body.error || `请求失败 (${response.status})`)
+      throw new Error(publicErrorMessages[body.error] || fallback)
     }
     return response.status === 204 ? null : response.json()
   }

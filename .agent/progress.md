@@ -6,7 +6,7 @@
 
 - 回收、撤销、超时、取消、审计、180 天清理及崩溃 Lease 恢复均已通过真实 PostgreSQL 验证。
 - Agent Bearer API 已装配 PostgreSQL，覆盖目标发现、begin/heartbeat/end task、申请与所有权隔离的状态查询。
-- 人类登录/Session 已持久化；Cookie 使用 HttpOnly/SameSite 且 HTTPS 默认 Secure，状态变更校验同源与双提交 CSRF。
+- 人类登录/Session 已持久化；活动管理员初始化后可自助注册立即启用的无特权普通用户；Cookie 使用 HttpOnly/SameSite 且 HTTPS 默认 Secure，状态变更校验同源与双提交 CSRF。
 - Web 已支持列表、注册、轮换/撤销 Token 和启停自有 Agent；Token 只在注册/轮换当次返回。
 - 初始管理员命令只允许互动终端无回显输入两次密码；Web 管理员可列出已有用户并设置启停/`APPROVE_ALL`，唯一管理员不可变更。
 - OpenBao 控制客户端已仅实现 KV/Transit Key/Database Role 配置写入，对外类型无读取、签名、动态签发或 Lease 撤销方法。
@@ -24,9 +24,9 @@
 已完成工作项：
 
 ```text
-ID / 目标：AKV-011.b / 优化 Web 项目目录结构
-结果：Vue 源码、测试和 Node 工具链已迁移到根目录 `web/`；Vite 继续输出到 Go embed 目录；构建、文档和路径引用已同步
-验证：Vue 安全扫描与 6 项测试、Vite 生产构建、`make verify`、五个二进制构建和 `git diff --check` 通过
+ID / 目标：AKV-012.a / 增加 Web 账号密码自助注册
+结果：登录页可切换注册表单；注册在一个 PostgreSQL 事务中创建立即启用的无特权普通用户、Session 和可归因审计，成功后直接进入工作台
+验证：Vue 安全扫描与 15 项测试、浏览器注册/退出冒烟、`make verify`、身份/控制/存储 race、真实 PostgreSQL 迁移/并发/回滚、五个二进制构建和 `git diff --check` 通过
 ```
 
 ## 队列
@@ -45,6 +45,7 @@ ID / 目标：AKV-011.b / 优化 Web 项目目录结构
 | `AKV-010.a` | `DONE` | 009 | 修复 Web 登录视图切换并增加回归测试 |
 | `AKV-011.a` | `DONE` | 010.a | Vue 3 控制台、构建链、测试与本地运行教程 |
 | `AKV-011.b` | `DONE` | 011.a | 前端源码与生成资源职责分离的项目结构 |
+| `AKV-012.a` | `DONE` | 011.b | MVP 普通用户账号密码自助注册 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -56,10 +57,10 @@ ID / 目标：AKV-011.b / 优化 Web 项目目录结构
 
 - 2026-07-15：`AKV-011.a` Vue 6 项测试、浏览器冒烟、`make verify`、全包 race、真实临时 PostgreSQL、`make build`、`git diff --check` 通过。
 - 2026-07-15：`AKV-011.b` Vue 安全扫描与 6 项测试、Vite 构建、`make verify`、五个二进制构建和 `git diff --check` 通过。
+- 2026-07-15：`AKV-012.a` Vue 15 项测试、浏览器注册/退出、`make verify`、race、真实 PostgreSQL 注册并发/回滚、`make build` 和 `git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-008.d`：实现无回显 bootstrap 和已有用户启停/APPROVE_ALL，保护唯一管理员｜下一步 `AKV-008.e`｜计划提交 `feat(control): manage human users`
 - 2026-07-15｜`AKV-008.e1`：实现无读取能力的 OpenBao KV/Database Role 控制写客户端｜下一步 `AKV-008.e2`｜计划提交 `feat(vault): add control-plane writer`
 - 2026-07-15｜`AKV-008.e2`：实现服务端路径的目标/凭证录入更新停用与无秘密 Web DTO｜下一步 `AKV-008.f`｜计划提交 `feat(control): manage credential catalog`
 - 2026-07-15｜`AKV-008.f`：实现权限隔离的申请查询、原子决策/撤销、审计链和不恢复 Grant 的 incident 处置｜下一步 `AKV-008.g`｜计划提交 `feat(control): expose approval workspace`
@@ -69,6 +70,7 @@ ID / 目标：AKV-011.b / 优化 Web 项目目录结构
 - 2026-07-15｜`AKV-010.a`：修复 hidden 被组件 display 覆盖导致登录后工作台不可见，并增加回归测试｜下一步无｜计划提交 `fix(web): honor hidden view state`
 - 2026-07-15｜`AKV-011.a`：将完整控制台迁移为 Vue 3 + Vite，保留单二进制与安全边界并更新本地教程｜下一步无｜计划提交 `feat(web): migrate console to Vue`
 - 2026-07-15｜`AKV-011.b`：将 Vue 工程迁移至根目录并保留 Go 嵌入产物边界｜下一步无｜计划提交 `refactor(web): separate source from embedded assets`
+- 2026-07-15｜`AKV-012.a`：实现立即启用且固定无特权的账号密码自助注册、原子 Session 和可归因审计｜下一步无｜计划提交 `feat(web): add account registration`
 
 ## MVP 验收
 

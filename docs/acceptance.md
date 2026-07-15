@@ -24,4 +24,5 @@
 - 动态 PostgreSQL 不降级固定凭证：`TestDynamicIssueFailureNeverFallsBackToStatic`、`TestPostgreSQLDynamicFailureHasNoConnectionOrFallback`。
 - 回收失败永久阻断并告警：`TestPostgreSQLCleanupFailureBecomesReclaimFailure`、`TestPostgreSQLCrashRecoveryRetriesWithoutRestoringGrant`。
 - Web Session/CSRF：`TestWebLoginUsesProtectedCookiesAndNoTokenBody`、`TestWebLogoutRequiresCSRFAndRevokesSession`。
+- Web 自助注册：`TestRegisterCreatesActiveNonAdminSessionWithoutPersistingSecrets`、`TestWebRegisterCreatesOrdinarySessionWithProtectedCookies`、`TestPostgreSQLRegistrationRequiresAdminAndCreatesActiveSession`、`TestPostgreSQLConcurrentRegistrationAllowsOneUsername`；账号与 Session 原子创建，固定为无特权普通用户，同名并发只有一个成功。
 - MCP Token 文件、无重试和后台心跳：`TestClientInjectsProtectedTokenWithoutRetryOrErrorLeak`、`TestBeginStartsAndEndStopsBackgroundHeartbeat`。

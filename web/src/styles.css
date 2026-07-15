@@ -64,6 +64,8 @@ input, select, textarea {
   color: var(--text);
 }
 .login-card button { width: 100%; margin-top: .8rem; }
+.login-card .auth-switch { margin-top: .55rem; }
+.auth-help { margin: -.25rem 0 .8rem; font-size: .78rem; }
 .error { min-height: 1.3rem; color: var(--danger); }
 
 .app-shell { display: grid; grid-template-columns: 15rem 1fr; min-height: 100vh; }

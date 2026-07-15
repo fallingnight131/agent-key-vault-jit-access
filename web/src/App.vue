@@ -6,7 +6,7 @@ import WorkspaceShell from './components/WorkspaceShell.vue'
 
 const currentUser = ref(null)
 const booting = ref(true)
-const loginError = ref('')
+const authError = ref('')
 
 const api = createAPI({
   onUnauthorized: () => {
@@ -25,7 +25,7 @@ async function loadSession() {
 }
 
 async function login(credentials) {
-  loginError.value = ''
+  clearAuthError()
   try {
     await api('/v1/web/login', {
       method: 'POST',
@@ -33,9 +33,26 @@ async function login(credentials) {
     })
     currentUser.value = await api('/v1/web/me')
   } catch (error) {
-    loginError.value = error.message
+    authError.value = error.message
     throw error
   }
+}
+
+async function register(credentials) {
+  clearAuthError()
+  try {
+    currentUser.value = await api('/v1/web/register', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    })
+  } catch (error) {
+    authError.value = error.message
+    throw error
+  }
+}
+
+function clearAuthError() {
+  authError.value = ''
 }
 
 async function logout() {
@@ -54,6 +71,12 @@ onMounted(loadSession)
     <div class="brand-mark">AKV</div>
     <p class="muted">正在连接控制面…</p>
   </main>
-  <LoginView v-else-if="!currentUser" :login="login" :error="loginError" />
+  <LoginView
+    v-else-if="!currentUser"
+    :login="login"
+    :register="register"
+    :error="authError"
+    @clear-error="clearAuthError"
+  />
   <WorkspaceShell v-else :user="currentUser" :api="api" :logout="logout" />
 </template>
