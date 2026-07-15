@@ -42,6 +42,7 @@
 - 2026-07-15：PostgreSQL 授权仓储用 serializable 事务原子写审批+Grant；占用用单条联结 `ACTIVE` task 的条件 `UPDATE ... RETURNING`，pgx v5 驱动和临时真实 PostgreSQL race 测试验证并发单赢家。
 - 2026-07-15：HTTP 执行链固定服务端目标并禁止重定向/重试，30 秒超时、1 MiB 响应上限；先占用 Grant 再读 Vault，代理注入认证，响应对原值、URL/Base64/Basic 形式脱敏后返回并清零材料。
 - 2026-07-15：PostgreSQL 执行链仅执行冻结的参数化语句；单语句 60 秒、事务批次 5 分钟且失败回滚；动态角色失败或配置要求动态但元数据不符时零连接/零静态回退，终态关闭连接并撤销 Lease。
+- 2026-07-15：Transit 签名执行只把已批准摘要交给 OpenBao `Sign`，占用失败时调用次数为零，返回值仅为签名而无私钥读取路径。
 
 ## Agent 维护区
 
