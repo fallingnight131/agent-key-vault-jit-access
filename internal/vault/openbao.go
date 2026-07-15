@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -55,6 +56,13 @@ func (client *OpenBaoControlClient) WriteKV(ctx context.Context, write KVWrite) 
 		}
 	}
 	return client.client.call(ctx, http.MethodPost, write.Path, nil, map[string]any{"data": values}, nil)
+}
+
+func (client *OpenBaoControlClient) ConfigureTransitKey(ctx context.Context, key TransitKey) error {
+	if strings.TrimSpace(key.Name) == "" || !slices.Contains([]string{"rsa-2048", "rsa-3072", "rsa-4096", "ecdsa-p256", "ecdsa-p384", "ecdsa-p521"}, key.Type) {
+		return ErrUnavailable
+	}
+	return client.client.call(ctx, http.MethodPost, "transit/keys/"+url.PathEscape(key.Name), nil, map[string]any{"type": key.Type, "exportable": false, "allow_plaintext_backup": false}, nil)
 }
 
 func (client *OpenBaoControlClient) ConfigureDatabaseRole(ctx context.Context, role DatabaseRole) error {

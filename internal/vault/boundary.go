@@ -16,12 +16,18 @@ var (
 // plane. It intentionally contains no read, sign, issue, or revoke operation.
 type ControlWriter interface {
 	WriteKV(context.Context, KVWrite) error
+	ConfigureTransitKey(context.Context, TransitKey) error
 	ConfigureDatabaseRole(context.Context, DatabaseRole) error
 }
 
 type KVWrite struct {
 	Path   string
 	Values map[string]*SensitiveValue
+}
+
+type TransitKey struct {
+	Name string
+	Type string
 }
 
 type DatabaseRole struct {

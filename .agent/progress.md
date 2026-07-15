@@ -10,7 +10,7 @@
 - Web 已支持列表、注册、轮换/撤销 Token 和启停自有 Agent；Token 只在注册/轮换当次返回。
 - 初始管理员命令只允许互动终端无回显输入两次密码；Web 管理员可列出已有用户并设置启停/`APPROVE_ALL`，唯一管理员不可变更。
 - 下一轮 `AKV-008.e` 实现管理员目标/凭证录入、更新和停用，且控制面仅持有 OpenBao 写能力。
-- OpenBao 控制客户端已仅实现 KV/Database Role 写入，对外类型无读取、签名、签发或撤销方法。
+- OpenBao 控制客户端已仅实现 KV/Transit Key/Database Role 配置写入，对外类型无读取、签名、动态签发或 Lease 撤销方法。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
 
 ## 当前工作项

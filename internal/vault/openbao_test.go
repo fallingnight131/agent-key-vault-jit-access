@@ -128,10 +128,13 @@ func TestOpenBaoControlClientOnlyWrites(t *testing.T) {
 	if err := client.WriteKV(context.Background(), KVWrite{Path: "kv/data/app", Values: map[string]*SensitiveValue{"api_key": secret}}); err != nil {
 		t.Fatalf("WriteKV() error = %v", err)
 	}
+	if err := client.ConfigureTransitKey(context.Background(), TransitKey{Name: "signing", Type: "ecdsa-p256"}); err != nil {
+		t.Fatalf("ConfigureTransitKey() error = %v", err)
+	}
 	if err := client.ConfigureDatabaseRole(context.Background(), DatabaseRole{Name: "app", ConnectionName: "postgres", CreationStatements: []string{"CREATE ROLE"}, DefaultTTL: time.Minute, MaxTTL: 10 * time.Minute}); err != nil {
 		t.Fatalf("ConfigureDatabaseRole() error = %v", err)
 	}
-	if requests != 2 {
+	if requests != 3 {
 		t.Fatalf("requests = %d", requests)
 	}
 }
