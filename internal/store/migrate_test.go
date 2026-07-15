@@ -27,6 +27,10 @@ func (store *fakeMigrationStore) ApplyMigration(_ context.Context, migration Mig
 
 func TestMigrateIsRepeatable(t *testing.T) {
 	store := &fakeMigrationStore{applied: make(map[string]string)}
+	migrations, err := LoadMigrations()
+	if err != nil {
+		t.Fatalf("LoadMigrations() error = %v", err)
+	}
 
 	if err := Migrate(context.Background(), store); err != nil {
 		t.Fatalf("first Migrate() error = %v", err)
@@ -34,8 +38,8 @@ func TestMigrateIsRepeatable(t *testing.T) {
 	if err := Migrate(context.Background(), store); err != nil {
 		t.Fatalf("second Migrate() error = %v", err)
 	}
-	if len(store.calls) != 1 {
-		t.Fatalf("ApplyMigration calls = %v, want exactly one", store.calls)
+	if len(store.calls) != len(migrations) {
+		t.Fatalf("ApplyMigration calls = %v, want each migration exactly once", store.calls)
 	}
 }
 

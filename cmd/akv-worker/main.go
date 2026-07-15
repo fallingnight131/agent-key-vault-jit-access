@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fallingnight/akv/internal/audit"
 	"github.com/fallingnight/akv/internal/lifecycle"
 	"github.com/fallingnight/akv/internal/proxy"
 	"github.com/fallingnight/akv/internal/store"
@@ -41,6 +42,7 @@ func main() {
 		os.Exit(1)
 	}
 	service := lifecycle.NewService(store.NewPostgreSQLLifecycleRepository(database))
+	auditService := audit.NewService(store.NewPostgreSQLAuditRepository(database))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	ticker := time.NewTicker(5 * time.Second)
@@ -61,6 +63,12 @@ func main() {
 					"expired_grants", result.ExpiredGrants,
 					"lost_tasks", result.LostTasks,
 					"cancellation_requests", len(result.CancelledExecutions))
+			}
+			deleted, err := auditService.Cleanup(ctx)
+			if err != nil {
+				logger.Error("audit cleanup failed", "error", err)
+			} else if deleted > 0 {
+				logger.Info("expired audit events deleted", "count", deleted)
 			}
 		}
 	}

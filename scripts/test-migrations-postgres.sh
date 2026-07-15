@@ -12,8 +12,9 @@ trap cleanup EXIT HUP INT TERM
 initdb -D "$postgres_data" -A trust -U akvtest --no-locale >/dev/null
 pg_ctl -D "$postgres_data" -o "-F -k $postgres_socket -h ''" -w start >/dev/null
 createdb -h "$postgres_socket" -U akvtest akvtest
-psql -X -v ON_ERROR_STOP=1 -h "$postgres_socket" -U akvtest -d akvtest \
-	-f internal/store/migrations/001_initial.sql >/dev/null
+for migration in internal/store/migrations/*.sql; do
+	psql -X -v ON_ERROR_STOP=1 -h "$postgres_socket" -U akvtest -d akvtest -f "$migration" >/dev/null
+done
 
 table_count=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest \
 	-c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
