@@ -1,23 +1,23 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-005`｜下一项：`AKV-005.b`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-005`｜下一项：`AKV-005.c`
 
 ## 恢复点
 
-- 不可变授权申请已实现活动任务前置校验、服务端默认凭证、强类型操作、认证头拒绝和完整上下文哈希。
-- 下一轮 `AKV-005.b` 实现审批权限、首个决定竞争和批准时原子创建一次性 Grant。
-- 拒绝、过期或权限失败不得产生 Grant；有效期默认 10 分钟且审批人只能缩短。
+- 审批权限、首个终态决定竞争、拒绝/过期零 Grant 和批准同事务绑定 Grant 已完成。
+- 下一轮 `AKV-005.c` 实现执行前完整上下文校验与 Grant 原子占用，并覆盖并发/重放/跨 Agent/跨任务/过期/撤销。
+- 原子占用成功之前执行服务不得访问 OpenBao 或目标；失败路径外部调用计数必须为零。
 
 ## 当前工作项
 
 下一最小切片：
 
 ```text
-ID / 目标：AKV-005.b / 实现人工审批竞争与 Grant 签发
-验收条件：owner/APPROVE_ALL/admin 权限；首个批准或拒绝原子生效；批准同事务创建绑定快照的 Grant；拒绝/过期零 Grant；make verify 通过
-修改范围：审批服务、事务仓储接口/fake、并发测试、memory/progress
+ID / 目标：AKV-005.c / 实现一次性 Grant 原子占用
+验收条件：Agent/任务/目标/凭证/操作哈希/状态/期限全匹配才原子占用；并发唯一成功；重放、跨上下文、过期、撤销拒绝；make verify/race 通过
+修改范围：执行守卫、原子仓储接口/fake、并发安全测试、memory/progress
 验证命令：make verify
-风险 / 下一步：应用服务不做读后写竞争；仓储单方法通过条件更新和唯一约束实现最终竞争
+风险 / 下一步：只允许单个持久层条件更新从 APPROVED 到 EXECUTING；不得先取 Vault 再占用
 ```
 
 ## 队列
@@ -28,7 +28,7 @@ ID / 目标：AKV-005.b / 实现人工审批竞争与 Grant 签发
 | `AKV-002` | `DONE` | 001 | 核心 schema、迁移机制及默认拒绝的状态转换 |
 | `AKV-003` | `DONE` | 002 | 人类身份、Agent Token、任务与心跳 |
 | `AKV-004` | `DONE` | 002 | 安全目标/凭证目录与 OpenBao 权限隔离 |
-| `AKV-005` | `IN_PROGRESS` | 003,004 | 不可变申请已完成；待审批竞争与 Grant 占用 |
+| `AKV-005` | `IN_PROGRESS` | 003,004 | 申请和审批竞争已完成；待 Grant 原子占用 |
 | `AKV-006` | `BACKLOG` | 005 | 受控代理、脱敏、HTTP/PG 连接器、动态凭证 |
 | `AKV-007` | `BACKLOG` | 005,006 | 超时、撤销、回收、告警、审计及 180 天清理 |
 | `AKV-008` | `BACKLOG` | 003-007 | MCP 工具和 Web 控制面 |
@@ -43,7 +43,7 @@ ID / 目标：AKV-005.b / 实现人工审批竞争与 Grant 签发
 
 ## 最近验证
 
-- 2026-07-15：`make verify` 和 `git diff --check` 通过；申请测试覆盖任务优先校验、服务端凭证、快照冻结、上下文哈希、30 分钟期限和认证头拒绝。
+- 2026-07-15：`make verify`、授权包 `go test -race` 和 `git diff --check` 通过；审批测试覆盖权限矩阵、默认/缩短 TTL、拒绝/过期零 Grant 及并发单赢家。
 
 ## 最近循环（最多 10 条）
 
@@ -58,6 +58,7 @@ ID / 目标：AKV-005.b / 实现人工审批竞争与 Grant 签发
 - 2026-07-15｜`AKV-004.a`：实现管理员目录、认证发现、安全连接白名单和服务端默认凭证｜下一步 `AKV-004.b`｜计划提交 `feat(catalog): add safe target catalog`
 - 2026-07-15｜`AKV-004.b`：隔离 OpenBao 控制/执行能力并实现敏感清零和动态无降级｜下一步 `AKV-005.a`｜计划提交 `feat(vault): isolate OpenBao capabilities`
 - 2026-07-15｜`AKV-005.a`：实现活动任务校验、服务端凭证、强类型操作和不可变上下文哈希｜下一步 `AKV-005.b`｜计划提交 `feat(authz): create immutable requests`
+- 2026-07-15｜`AKV-005.b`：实现审批权限、首个决定竞争及批准同事务 Grant｜下一步 `AKV-005.c`｜计划提交 `feat(authz): enforce approval competition`
 
 ## MVP 验收
 
