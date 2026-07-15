@@ -40,6 +40,7 @@
 - 2026-07-15：审批服务只做权限/输入准备，最终竞争由仓储 `DecidePending` 单事务完成；批准同事务创建最长 10 分钟且绑定完整快照的 Grant，拒绝和过期不创建 Grant。
 - 2026-07-15：执行守卫只依赖单个 `ClaimApproved` 条件更新能力，完整匹配 Grant/Agent/任务/目标/凭证/操作哈希/期限后才返回；不具备 Vault 或连接器能力。
 - 2026-07-15：PostgreSQL 授权仓储用 serializable 事务原子写审批+Grant；占用用单条联结 `ACTIVE` task 的条件 `UPDATE ... RETURNING`，pgx v5 驱动和临时真实 PostgreSQL race 测试验证并发单赢家。
+- 2026-07-15：HTTP 执行链固定服务端目标并禁止重定向/重试，30 秒超时、1 MiB 响应上限；先占用 Grant 再读 Vault，代理注入认证，响应对原值、URL/Base64/Basic 形式脱敏后返回并清零材料。
 
 ## Agent 维护区
 
