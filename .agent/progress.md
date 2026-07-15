@@ -1,23 +1,23 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-003`｜下一项：`AKV-003.c`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-004`｜下一项：`AKV-004.a`
 
 ## 恢复点
 
-- Agent 注册、三档 Token 有效期、永久风险标记、哈希认证、轮换、撤销和停用已完成。
-- 下一轮 `AKV-003.c` 实现服务端 UUIDv7 任务、15 秒心跳、45 秒失联和任务归属校验。
-- 任务终止只触发任务级授权回收，不得撤销仍有效的 Agent Token。
+- 人类身份、Agent Token、服务端 UUIDv7 任务、归属校验、心跳和 45 秒失联扫描已完成。
+- 下一轮 `AKV-004.a` 实现目标与凭证元数据目录，强制默认凭证选择和非敏感连接配置。
+- OpenBao 客户端在下一切片通过窄接口隔离；fake 不持有真实凭证。
 
 ## 当前工作项
 
 下一最小切片：
 
 ```text
-ID / 目标：AKV-003.c / 实现任务会话与心跳
-验收条件：服务端 UUIDv7；任务强绑定 Agent；心跳仅更新活动任务；45 秒失联转 AGENT_LOST；make verify 通过
-修改范围：任务服务、仓储接口/fake、测试、依赖、memory/progress
+ID / 目标：AKV-004.a / 实现目标与凭证元数据目录
+验收条件：仅管理员写入；所有已认证 Agent 只发现启用目标；默认凭证由服务端解析；配置禁止认证头/秘密字段；make verify 通过
+修改范围：目录服务、验证规则、仓储接口/fake、测试、memory/progress
 验证命令：make verify
-风险 / 下一步：状态/归属检查最终用 SQL 条件更新；失联动作要返回需回收的任务而不影响 Agent Token
+风险 / 下一步：connection_config 只允许连接定位与操作边界，不得成为秘密旁路；Agent 不能提交 credential_id
 ```
 
 ## 队列
@@ -26,8 +26,8 @@ ID / 目标：AKV-003.c / 实现任务会话与心跳
 | --- | --- | --- | --- |
 | `AKV-001` | `DONE` | - | Git、安全忽略规则、Go 工程、控制服务入口及统一验证 |
 | `AKV-002` | `DONE` | 001 | 核心 schema、迁移机制及默认拒绝的状态转换 |
-| `AKV-003` | `IN_PROGRESS` | 002 | 人类身份和 Agent Token 已完成；待任务与心跳 |
-| `AKV-004` | `BACKLOG` | 002 | 目标/凭证目录与 OpenBao 集成 |
+| `AKV-003` | `DONE` | 002 | 人类身份、Agent Token、任务与心跳 |
+| `AKV-004` | `IN_PROGRESS` | 002 | 目标/凭证目录与 OpenBao 集成 |
 | `AKV-005` | `BACKLOG` | 003,004 | 申请、审批竞争、一次性 Grant 原子占用 |
 | `AKV-006` | `BACKLOG` | 005 | 受控代理、脱敏、HTTP/PG 连接器、动态凭证 |
 | `AKV-007` | `BACKLOG` | 005,006 | 超时、撤销、回收、告警、审计及 180 天清理 |
@@ -43,7 +43,7 @@ ID / 目标：AKV-003.c / 实现任务会话与心跳
 
 ## 最近验证
 
-- 2026-07-15：`make verify` 和 `git diff --check` 通过；Agent 测试覆盖三档有效期、哈希存储、轮换旧值失效、过期/撤销/停用和跨所有者拒绝。
+- 2026-07-15：`make verify` 和 `git diff --check` 通过；任务测试覆盖 UUIDv7、跨 Agent、终态心跳拒绝及 45 秒失联边界。
 
 ## 最近循环（最多 10 条）
 
@@ -54,6 +54,7 @@ ID / 目标：AKV-003.c / 实现任务会话与心跳
 - 2026-07-15｜`AKV-002.b`：实现任务、申请、Grant、执行和回收的默认拒绝状态矩阵｜下一步 `AKV-003.a`｜计划提交 `feat(domain): enforce lifecycle transitions`
 - 2026-07-15｜`AKV-003.a`：实现 bcrypt、唯一初始化、Session 哈希和人类权限核心服务｜下一步 `AKV-003.b`｜计划提交 `feat(identity): add human authentication core`
 - 2026-07-15｜`AKV-003.b`：实现 Agent Token 三档有效期、哈希认证、原子轮换接口和停用｜下一步 `AKV-003.c`｜计划提交 `feat(agent): enforce token lifecycle`
+- 2026-07-15｜`AKV-003.c`：实现 UUIDv7 任务、Agent 绑定、活动心跳和 45 秒失联扫描｜下一步 `AKV-004.a`｜计划提交 `feat(task): add managed task sessions`
 
 ## MVP 验收
 
