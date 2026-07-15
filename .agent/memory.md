@@ -30,6 +30,7 @@
 - 2026-07-15：首个部署入口为 `cmd/akv-control`，默认仅监听 `127.0.0.1:8080`；执行代理后续必须保持独立进程和权限边界。
 - 2026-07-15：PostgreSQL 迁移内嵌于 `internal/store/migrations`，按版本和 SHA-256 校验和原子应用；`make test-migrations-postgres` 使用临时本地实例做真实语法验证。
 - 2026-07-15：业务库只保存密码/Token 哈希和 OpenBao 引用；初始 schema 以唯一索引保证单管理员、单 Agent 未撤销 Token，以触发器冻结授权申请快照。
+- 2026-07-15：任务、申请、Grant、执行和回收状态转换集中在 `internal/domain`；状态均为默认拒绝，终态不可回退，Grant 执行结果必须进入回收。
 
 ## Agent 维护区
 
