@@ -8,6 +8,9 @@ const publicErrorMessages = {
   INVALID_REGISTRATION: '用户名或密码不符合注册要求',
   REGISTRATION_UNAVAILABLE: '系统尚未初始化，请先创建管理员账号',
   USERNAME_UNAVAILABLE: '用户名已被使用，请换一个',
+  FORBIDDEN: '没有权限执行此操作',
+  CSRF_REJECTED: '页面校验已过期，请刷新后重试',
+  INTERNAL: '服务暂时不可用，请稍后重试',
 }
 
 export function createAPI({

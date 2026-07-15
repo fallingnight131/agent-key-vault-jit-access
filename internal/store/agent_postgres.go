@@ -84,15 +84,21 @@ WHERE t.token_hash=$1`, hash[:]).Scan(
 }
 
 func (repository *PostgreSQLAgentRepository) RevokeAgentToken(ctx context.Context, ownerID, agentID string, at time.Time) error {
-	result, err := repository.database.ExecContext(ctx, `UPDATE agent_tokens t SET revoked_at=$3 FROM agents a WHERE t.agent_id=a.id AND a.id=$1 AND a.owner_user_id=$2 AND t.revoked_at IS NULL`, agentID, ownerID, at)
+	transaction, err := repository.database.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("begin token revocation: %w", err)
+	}
+	defer func() { _ = transaction.Rollback() }()
+	var ownedAgentID string
+	if err := transaction.QueryRowContext(ctx, `SELECT id FROM agents WHERE id=$1 AND owner_user_id=$2 FOR UPDATE`, agentID, ownerID).Scan(&ownedAgentID); errors.Is(err, sql.ErrNoRows) {
+		return agent.ErrForbidden
+	} else if err != nil {
+		return fmt.Errorf("lock agent for token revocation: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx, `UPDATE agent_tokens SET revoked_at=$2 WHERE agent_id=$1 AND revoked_at IS NULL`, ownedAgentID, at); err != nil {
 		return fmt.Errorf("revoke agent token: %w", err)
 	}
-	rows, _ := result.RowsAffected()
-	if rows != 1 {
-		return agent.ErrForbidden
-	}
-	return nil
+	return transaction.Commit()
 }
 
 func (repository *PostgreSQLAgentRepository) SetAgentActive(ctx context.Context, ownerID, agentID string, active bool, at time.Time) error {
@@ -112,7 +118,7 @@ func (repository *PostgreSQLAgentRepository) SetAgentActive(ctx context.Context,
 }
 
 func (repository *PostgreSQLAgentRepository) ListOwnedAgents(ctx context.Context, ownerID string) ([]agent.View, error) {
-	rows, err := repository.database.QueryContext(ctx, `SELECT a.id,a.name,a.status,a.created_at,t.expires_at FROM agents a LEFT JOIN agent_tokens t ON t.agent_id=a.id AND t.revoked_at IS NULL WHERE a.owner_user_id=$1 ORDER BY a.created_at,a.id`, ownerID)
+	rows, err := repository.database.QueryContext(ctx, `SELECT a.id,a.name,a.status,a.created_at,t.id IS NOT NULL,t.expires_at FROM agents a LEFT JOIN agent_tokens t ON t.agent_id=a.id AND t.revoked_at IS NULL WHERE a.owner_user_id=$1 ORDER BY a.created_at,a.id`, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +128,7 @@ func (repository *PostgreSQLAgentRepository) ListOwnedAgents(ctx context.Context
 		var record agent.View
 		var status string
 		var expiresAt sql.NullTime
-		if err := rows.Scan(&record.ID, &record.Name, &status, &record.CreatedAt, &expiresAt); err != nil {
+		if err := rows.Scan(&record.ID, &record.Name, &status, &record.CreatedAt, &record.HasActiveToken, &expiresAt); err != nil {
 			return nil, err
 		}
 		record.Active = status == "ACTIVE"

@@ -74,6 +74,7 @@ type View struct {
 	Name           string
 	Active         bool
 	CreatedAt      time.Time
+	HasActiveToken bool
 	TokenExpiresAt *time.Time
 }
 

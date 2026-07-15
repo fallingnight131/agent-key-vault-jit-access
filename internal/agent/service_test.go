@@ -54,7 +54,11 @@ func (repository *fakeRepository) ListOwnedAgents(_ context.Context, ownerID str
 	if repository.agent.OwnerUserID != ownerID {
 		return nil, nil
 	}
-	return []View{{ID: repository.agent.ID, Name: repository.agent.Name, Active: repository.agent.Active, CreatedAt: repository.agent.CreatedAt, TokenExpiresAt: repository.token.ExpiresAt}}, nil
+	return []View{{
+		ID: repository.agent.ID, Name: repository.agent.Name, Active: repository.agent.Active,
+		CreatedAt: repository.agent.CreatedAt, HasActiveToken: repository.token.ID != "" && repository.token.RevokedAt == nil,
+		TokenExpiresAt: repository.token.ExpiresAt,
+	}}, nil
 }
 
 func TestRegisterTokenLifetimesAndHashes(t *testing.T) {
@@ -154,6 +158,28 @@ func TestOwnerBoundary(t *testing.T) {
 	}
 	if err := service.RevokeToken(context.Background(), "other", credential.AgentID); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("cross-owner RevokeToken() error = %v", err)
+	}
+}
+
+func TestRevokeTokenIsIdempotentForOwner(t *testing.T) {
+	repository := &fakeRepository{}
+	service := newTestService(repository)
+	credential, err := service.Register(context.Background(), "owner", "agent", TokenPermanent)
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if err := service.RevokeToken(context.Background(), "owner", credential.AgentID); err != nil {
+		t.Fatalf("first RevokeToken() error = %v", err)
+	}
+	if err := service.RevokeToken(context.Background(), "owner", credential.AgentID); err != nil {
+		t.Fatalf("second RevokeToken() error = %v", err)
+	}
+	if _, err := service.Authenticate(context.Background(), credential.Token); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("revoked Authenticate() error = %v", err)
+	}
+	records, err := service.List(context.Background(), "owner")
+	if err != nil || len(records) != 1 || records[0].HasActiveToken {
+		t.Fatalf("List() records=%+v error=%v", records, err)
 	}
 }
 

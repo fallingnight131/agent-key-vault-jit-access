@@ -46,7 +46,7 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 		t.Fatalf("Authenticate() error = %v", err)
 	}
 	agents, err := agentService.List(ctx, testUserID)
-	if err != nil || len(agents) != 1 || agents[0].ID != principal.AgentID || agents[0].TokenExpiresAt == nil {
+	if err != nil || len(agents) != 1 || agents[0].ID != principal.AgentID || !agents[0].HasActiveToken || agents[0].TokenExpiresAt == nil {
 		t.Fatalf("List() agents=%+v error=%v", agents, err)
 	}
 
@@ -154,12 +154,26 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 	if err := agentService.RevokeToken(ctx, testUserID, principal.AgentID); err != nil {
 		t.Fatalf("RevokeToken() error = %v", err)
 	}
-	replacement, err := agentService.RotateToken(ctx, testUserID, principal.AgentID, agent.Token24Hours)
+	agents, err = agentService.List(ctx, testUserID)
+	if err != nil || len(agents) != 1 || agents[0].HasActiveToken || agents[0].TokenExpiresAt != nil {
+		t.Fatalf("List() after revocation agents=%+v error=%v", agents, err)
+	}
+	if err := agentService.RevokeToken(ctx, testUserID, principal.AgentID); err != nil {
+		t.Fatalf("repeated RevokeToken() error = %v", err)
+	}
+	if err := agentService.RevokeToken(ctx, unrelatedUserID, principal.AgentID); !errors.Is(err, agent.ErrForbidden) {
+		t.Fatalf("cross-owner RevokeToken() error = %v", err)
+	}
+	replacement, err := agentService.RotateToken(ctx, testUserID, principal.AgentID, agent.TokenPermanent)
 	if err != nil {
 		t.Fatalf("RotateToken() after revocation error = %v", err)
 	}
 	if _, err := agentService.Authenticate(ctx, replacement.Token); err != nil {
 		t.Fatalf("replacement Authenticate() error = %v", err)
+	}
+	agents, err = agentService.List(ctx, testUserID)
+	if err != nil || len(agents) != 1 || !agents[0].HasActiveToken || agents[0].TokenExpiresAt != nil {
+		t.Fatalf("List() with permanent token agents=%+v error=%v", agents, err)
 	}
 	if err := catalogService.SetCredentialActive(ctx, adminActor, credential.ID, false); err != nil {
 		t.Fatalf("SetCredentialActive() error = %v", err)

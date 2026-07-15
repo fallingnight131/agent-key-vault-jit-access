@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -22,6 +23,7 @@ type agentDTO struct {
 	Name           string     `json:"name"`
 	Active         bool       `json:"active"`
 	CreatedAt      time.Time  `json:"created_at"`
+	HasActiveToken bool       `json:"has_active_token"`
 	TokenExpiresAt *time.Time `json:"token_expires_at,omitempty"`
 }
 
@@ -37,7 +39,10 @@ func (runtime *WebRuntime) listAgents(response http.ResponseWriter, request *htt
 	}
 	result := make([]agentDTO, 0, len(records))
 	for _, record := range records {
-		result = append(result, agentDTO{record.ID, record.Name, record.Active, record.CreatedAt, record.TokenExpiresAt})
+		result = append(result, agentDTO{
+			ID: record.ID, Name: record.Name, Active: record.Active, CreatedAt: record.CreatedAt,
+			HasActiveToken: record.HasActiveToken, TokenExpiresAt: record.TokenExpiresAt,
+		})
 	}
 	writeJSON(response, http.StatusOK, result)
 }
@@ -87,7 +92,11 @@ func (runtime *WebRuntime) revokeAgentToken(response http.ResponseWriter, reques
 		return
 	}
 	if err := runtime.Agents.RevokeToken(request.Context(), user.ID, request.PathValue("agent_id")); err != nil {
-		writeJSON(response, http.StatusForbidden, map[string]string{"error": "FORBIDDEN"})
+		if errors.Is(err, agent.ErrForbidden) {
+			writeJSON(response, http.StatusForbidden, map[string]string{"error": "FORBIDDEN"})
+		} else {
+			writeJSON(response, http.StatusInternalServerError, map[string]string{"error": "INTERNAL"})
+		}
 		return
 	}
 	response.WriteHeader(http.StatusNoContent)

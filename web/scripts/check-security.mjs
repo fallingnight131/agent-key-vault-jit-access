@@ -12,6 +12,9 @@ const forbidden = [
   ['.outerHTML', 'direct HTML rendering'],
   ['document.write', 'direct document rendering'],
   ['console.', 'browser console logging'],
+  ['window.prompt', 'browser-native prompt dialog'],
+  ['window.confirm', 'browser-native confirmation dialog'],
+  ['window.alert', 'browser-native alert dialog'],
 ]
 
 async function sourceFiles(directory) {

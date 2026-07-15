@@ -1,6 +1,7 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { encodeBase64 } from '../helpers.js'
+import ModalDialog from '../components/ModalDialog.vue'
 
 const props = defineProps({ api: { type: Function, required: true } })
 const targets = ref([])
@@ -12,7 +13,10 @@ const operationBindings = ref([])
 const loading = ref(true)
 const error = ref('')
 const busy = ref(false)
-const definitionDrafts = new Map()
+const dialogKind = ref('')
+const dialogContext = ref(null)
+const dialogData = ref({})
+const dialogError = ref('')
 
 const emptyArgumentsSchema = {
   type: 'object',
@@ -20,6 +24,54 @@ const emptyArgumentsSchema = {
   required: [],
   additionalProperties: false,
 }
+
+const dialogConfig = computed(() => {
+  if (dialogKind.value === 'http-target') {
+    return {
+      title: '新建 HTTP 目标',
+      description: '配置目标地址和默认凭证。凭证明文只写入一次，提交后无法从控制台读取。',
+      submitLabel: '创建目标',
+      wide: true,
+    }
+  }
+  if (dialogKind.value === 'postgres-target') {
+    return {
+      title: '新建 PostgreSQL 目标',
+      description: '选择固定凭证或 OpenBao 动态凭证，并填写数据库连接信息。',
+      submitLabel: '创建目标',
+      wide: true,
+    }
+  }
+  if (dialogKind.value === 'credential') {
+    const credential = dialogContext.value?.credential
+    return {
+      title: '更新凭证',
+      description: `${credential?.alias || '默认凭证'} · ${credential?.credential_type || ''}。新值提交后不会再次显示。`,
+      submitLabel: '更新凭证',
+      wide: true,
+    }
+  }
+  if (dialogKind.value === 'operation-set') {
+    return {
+      title: '新建安全操作集',
+      description: '同一执行器类型的安全操作可以复用并绑定到多个兼容目标。',
+      submitLabel: '创建操作集',
+    }
+  }
+  if (dialogKind.value === 'operation') {
+    return {
+      title: dialogContext.value?.operation ? '发布操作新版本' : '发布 v1 操作',
+      description: '公开 Schema 会返回给 Agent；私有执行模板只供 Control 编译和审批展示。',
+      submitLabel: dialogContext.value?.operation ? '发布新版本' : '发布 v1',
+      wide: true,
+    }
+  }
+  return {
+    title: dialogContext.value?.binding ? '升级目标绑定' : '绑定操作到目标',
+    description: '绑定会固定目标、操作和精确版本；以后发布新版本不会自动升级。',
+    submitLabel: dialogContext.value?.binding ? '确认升级' : '创建绑定',
+  }
+})
 
 async function load() {
   loading.value = true
@@ -39,97 +91,85 @@ async function load() {
   }
 }
 
-function secretPayload(type) {
-  if (type === 'API_KEY') return singleSecret('API Key（只写入一次）', 'api_key')
-  if (type === 'ACCESS_TOKEN') return singleSecret('Access Token（只写入一次）', 'access_token')
-  if (type === 'USERNAME_PASSWORD') {
-    let username = window.prompt('目标用户名')
-    let password = window.prompt('目标密码（只写入一次）')
-    if (!username || !password) return null
-    const payload = { secret_values: { username: encodeBase64(username), password: encodeBase64(password) } }
-    username = ''
-    password = ''
-    return payload
+function credentialDefaults(type = 'API_KEY') {
+  return {
+    credential_type: type,
+    api_key: '',
+    access_token: '',
+    username: '',
+    password: '',
+    certificate: '',
+    private_key: '',
+    transit_key_type: 'ecdsa-p256',
+    connection_name: '',
+    creation_statement: '',
   }
-  if (type === 'CERTIFICATE') {
-    let certificate = window.prompt('PEM 证书（仅存储）')
-    let privateKey = window.prompt('PEM 私钥（仅存储）')
-    if (!certificate || !privateKey) return null
-    const payload = { secret_values: { certificate: encodeBase64(certificate), private_key: encodeBase64(privateKey) } }
-    certificate = ''
-    privateKey = ''
-    return payload
+}
+
+function takeEncoded(data, key) {
+  const value = data[key]
+  data[key] = ''
+  return encodeBase64(value)
+}
+
+function credentialMaterial(type, data) {
+  if (type === 'API_KEY' && data.api_key) {
+    return { secret_values: { api_key: takeEncoded(data, 'api_key') } }
   }
-  if (type === 'TRANSIT_KEY') {
-    const keyType = window.prompt('Transit Key 类型', 'ecdsa-p256')
-    return keyType ? { transit_key_type: keyType } : null
+  if (type === 'ACCESS_TOKEN' && data.access_token) {
+    return { secret_values: { access_token: takeEncoded(data, 'access_token') } }
   }
-  if (type === 'POSTGRESQL_DYNAMIC') {
-    const connectionName = window.prompt('OpenBao database connection name')
-    const creation = window.prompt('创建临时用户的 SQL 语句')
-    return connectionName && creation ? {
+  if (type === 'USERNAME_PASSWORD' && data.username && data.password) {
+    return {
+      secret_values: {
+        username: takeEncoded(data, 'username'),
+        password: takeEncoded(data, 'password'),
+      },
+    }
+  }
+  if (type === 'CERTIFICATE' && data.certificate && data.private_key) {
+    return {
+      secret_values: {
+        certificate: takeEncoded(data, 'certificate'),
+        private_key: takeEncoded(data, 'private_key'),
+      },
+    }
+  }
+  if (type === 'TRANSIT_KEY' && data.transit_key_type) {
+    return { transit_key_type: data.transit_key_type.trim() }
+  }
+  if (type === 'POSTGRESQL_DYNAMIC' && data.connection_name && data.creation_statement) {
+    const creationStatement = data.creation_statement
+    data.creation_statement = ''
+    return {
       database_role: {
-        connection_name: connectionName,
-        creation_statements: [creation],
+        connection_name: data.connection_name.trim(),
+        creation_statements: [creationStatement],
         default_ttl: 60000000000,
         max_ttl: 300000000000,
       },
-    } : null
+    }
   }
+  dialogError.value = '请填写当前凭证类型要求的全部字段'
   return null
 }
 
-function singleSecret(message, key) {
-  let value = window.prompt(message)
-  if (!value) return null
-  const payload = { secret_values: { [key]: encodeBase64(value) } }
-  value = ''
-  return payload
+function createHTTPTarget() {
+  openDialog('http-target', {
+    name: '',
+    base_url: '',
+    ...credentialDefaults('API_KEY'),
+  })
 }
 
-async function createHTTPTarget() {
-  const name = window.prompt('目标名称')
-  const baseURL = window.prompt('HTTP(S) 基础 URL')
-  const credentialType = window.prompt('凭证类型：API_KEY / ACCESS_TOKEN / USERNAME_PASSWORD / CERTIFICATE / TRANSIT_KEY', 'API_KEY')?.toUpperCase()
-  if (!name || !baseURL || !credentialType) return
-  const material = secretPayload(credentialType)
-  if (!material) return
-  await mutate(() => props.api('/v1/web/targets', {
-    method: 'POST',
-    body: JSON.stringify({
-      name,
-      description: '',
-      connector_type: 'HTTP',
-      connection_config: { base_url: baseURL, allowed_http_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] },
-      credential_alias: 'default',
-      credential_type: credentialType,
-      ...material,
-    }),
-  }))
-}
-
-async function createPostgreSQLTarget() {
-  const name = window.prompt('目标名称')
-  const host = window.prompt('数据库主机名或 IP')
-  const port = Number(window.prompt('端口', '5432'))
-  const database = window.prompt('数据库名')
-  const dynamic = window.confirm('使用 OpenBao 动态 PostgreSQL 凭证？')
-  if (!name || !host || !port || !database) return
-  const credentialType = dynamic ? 'POSTGRESQL_DYNAMIC' : 'USERNAME_PASSWORD'
-  const material = secretPayload(credentialType)
-  if (!material) return
-  await mutate(() => props.api('/v1/web/targets', {
-    method: 'POST',
-    body: JSON.stringify({
-      name,
-      description: '',
-      connector_type: 'POSTGRESQL',
-      connection_config: { host, port, database, tls_mode: 'require', require_dynamic: dynamic },
-      credential_alias: 'default',
-      credential_type: credentialType,
-      ...material,
-    }),
-  }))
+function createPostgreSQLTarget() {
+  openDialog('postgres-target', {
+    name: '',
+    host: '',
+    port: 5432,
+    database: '',
+    ...credentialDefaults('USERNAME_PASSWORD'),
+  })
 }
 
 async function toggleTarget(target) {
@@ -150,13 +190,8 @@ async function toggleCredential(credential) {
   }))
 }
 
-async function rotateCredential(credential) {
-  const material = secretPayload(credential.credential_type)
-  if (!material) return
-  await mutate(() => props.api(`/v1/web/credentials/${credential.id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(material),
-  }))
+function rotateCredential(credential) {
+  openDialog('credential', credentialDefaults(credential.credential_type), { credential })
 }
 
 function operationsFor(setID) {
@@ -232,103 +267,33 @@ function parseJSONObject(label, text) {
     if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('not an object')
     return parsed
   } catch {
-    error.value = `${label}必须是有效的 JSON 对象`
+    dialogError.value = `${label}必须是有效的 JSON 对象`
     return null
   }
 }
 
-function readOperationDefinition(set, operation = null) {
-  error.value = ''
-  const draftKey = operation ? `version:${operation.id}` : `operation:${set.id}`
+function openOperationDefinition(set, operation = null) {
   const current = operation ? currentVersionFor(operation) : null
-  const saved = definitionDrafts.get(draftKey)
-  const draft = saved || {
+  openDialog('operation', {
     key: '',
     name: current?.name || '',
     description: current?.description || '',
-    riskLevel: current?.risk_level || 'LOW',
-    argumentsSchema: prettyJSON(current?.arguments_schema || defaultSchema(set.executor_type)),
-    executionTemplate: prettyJSON(current?.execution_template || defaultTemplate(set.executor_type)),
-  }
-
-  if (!operation) {
-    const key = window.prompt('操作键：小写字母、数字或下划线', draft.key)
-    if (key === null) return null
-    draft.key = key.trim()
-  }
-  const name = window.prompt('操作名称', draft.name)
-  if (name === null) return null
-  draft.name = name.trim()
-  const description = window.prompt('操作说明', draft.description)
-  if (description === null) return null
-  draft.description = description.trim()
-  const riskLevel = window.prompt('风险等级：LOW / MEDIUM / HIGH', draft.riskLevel)
-  if (riskLevel === null) return null
-  draft.riskLevel = riskLevel.trim().toUpperCase()
-  const argumentsSchema = window.prompt('公开参数 Schema（JSON 对象）', draft.argumentsSchema)
-  if (argumentsSchema === null) return null
-  draft.argumentsSchema = argumentsSchema
-  const executionTemplate = window.prompt('私有执行模板（JSON 对象）', draft.executionTemplate)
-  if (executionTemplate === null) return null
-  draft.executionTemplate = executionTemplate
-  definitionDrafts.set(draftKey, draft)
-
-  if ((!operation && !draft.key) || !draft.name || !['LOW', 'MEDIUM', 'HIGH'].includes(draft.riskLevel)) {
-    error.value = '请填写操作键、操作名称和正确的风险等级'
-    return null
-  }
-  const parsedSchema = parseJSONObject('公开参数 Schema', draft.argumentsSchema)
-  if (!parsedSchema) return null
-  const parsedTemplate = parseJSONObject('私有执行模板', draft.executionTemplate)
-  if (!parsedTemplate) return null
-  return {
-    draftKey,
-    payload: {
-      ...(!operation ? { key: draft.key } : {}),
-      name: draft.name,
-      description: draft.description,
-      risk_level: draft.riskLevel,
-      arguments_schema: parsedSchema,
-      execution_template: parsedTemplate,
-    },
-  }
+    risk_level: current?.risk_level || 'LOW',
+    arguments_schema: prettyJSON(current?.arguments_schema || defaultSchema(set.executor_type)),
+    execution_template: prettyJSON(current?.execution_template || defaultTemplate(set.executor_type)),
+  }, { set, operation })
 }
 
-async function createOperationSet() {
-  error.value = ''
-  const name = window.prompt('操作集名称')
-  if (name === null) return
-  const description = window.prompt('操作集说明', '')
-  if (description === null) return
-  const executorType = window.prompt('执行器类型：HTTP / POSTGRESQL / SIGN', 'HTTP')?.trim().toUpperCase()
-  if (!name.trim() || !executorType || !['HTTP', 'POSTGRESQL', 'SIGN'].includes(executorType)) {
-    error.value = '请填写操作集名称和正确的执行器类型'
-    return
-  }
-  await mutate(() => props.api('/v1/web/operation-sets', {
-    method: 'POST',
-    body: JSON.stringify({ name: name.trim(), description: description.trim(), executor_type: executorType }),
-  }))
+function createOperationSet() {
+  openDialog('operation-set', { name: '', description: '', executor_type: 'HTTP' })
 }
 
-async function createOperation(set) {
-  const definition = readOperationDefinition(set)
-  if (!definition) return
-  const succeeded = await mutate(() => props.api(`/v1/web/operation-sets/${set.id}/operations`, {
-    method: 'POST',
-    body: JSON.stringify(definition.payload),
-  }))
-  if (succeeded) definitionDrafts.delete(definition.draftKey)
+function createOperation(set) {
+  openOperationDefinition(set)
 }
 
-async function publishOperationVersion(set, operation) {
-  const definition = readOperationDefinition(set, operation)
-  if (!definition) return
-  const succeeded = await mutate(() => props.api(`/v1/web/operations/${operation.id}/versions`, {
-    method: 'POST',
-    body: JSON.stringify(definition.payload),
-  }))
-  if (succeeded) definitionDrafts.delete(definition.draftKey)
+function publishOperationVersion(set, operation) {
+  openOperationDefinition(set, operation)
 }
 
 async function toggleOperationSet(set) {
@@ -345,46 +310,29 @@ async function toggleOperation(operation) {
   }))
 }
 
-function readVersion(operation, initialVersion) {
-  const available = versionsFor(operation.id).map((version) => version.version)
-  const raw = window.prompt(`精确版本号（可用：${available.map((version) => `v${version}`).join('、')}）`, String(initialVersion))
-  if (raw === null) return null
-  const version = Number(raw)
-  if (!Number.isInteger(version) || !available.includes(version)) {
-    error.value = '请输入已发布的精确版本号'
-    return null
-  }
-  return version
-}
-
-async function bindOperation(operation) {
+function bindOperation(operation) {
   error.value = ''
   if (!targets.value.length) {
     error.value = '请先创建可绑定的目标'
     return
   }
-  const choices = targets.value.map((target) => `${target.name}: ${target.id}`).join('\n')
-  const targetID = window.prompt(`输入目标 ID：\n${choices}`, targets.value[0].id)
-  if (targetID === null) return
-  if (!targets.value.some((target) => target.id === targetID.trim())) {
-    error.value = '请输入列表中的目标 ID'
-    return
-  }
-  const version = readVersion(operation, operation.current_version)
-  if (version === null) return
-  await saveBinding(targetID.trim(), operation.id, version, true)
+  openDialog('binding', {
+    target_id: targets.value[0].id,
+    version: operation.current_version,
+  }, { operation })
 }
 
-async function upgradeBinding(binding) {
+function upgradeBinding(binding) {
   error.value = ''
   const operation = operationFor(binding.operation_id)
   if (!operation) {
     error.value = '找不到这条绑定对应的操作'
     return
   }
-  const version = readVersion(operation, binding.version)
-  if (version === null) return
-  await saveBinding(binding.target_id, binding.operation_id, version, binding.active)
+  openDialog('binding', {
+    target_id: binding.target_id,
+    version: binding.version,
+  }, { operation, binding })
 }
 
 async function toggleBinding(binding) {
@@ -396,6 +344,160 @@ async function saveBinding(targetID, operationID, version, active) {
     method: 'PUT',
     body: JSON.stringify({ version, active }),
   }))
+}
+
+function openDialog(kind, data, context = null) {
+  wipeDialogSecrets()
+  error.value = ''
+  dialogError.value = ''
+  dialogKind.value = kind
+  dialogData.value = { ...data }
+  dialogContext.value = context
+}
+
+function closeDialog(force = false) {
+  if (busy.value && !force) return
+  wipeDialogSecrets()
+  dialogKind.value = ''
+  dialogData.value = {}
+  dialogContext.value = null
+  dialogError.value = ''
+}
+
+function wipeDialogSecrets() {
+  const data = dialogData.value
+  for (const key of ['api_key', 'access_token', 'username', 'password', 'certificate', 'private_key', 'creation_statement']) {
+    if (typeof data[key] === 'string') data[key] = ''
+  }
+}
+
+async function submitDialog() {
+  const data = dialogData.value
+  let path
+  let method = 'POST'
+  let payload
+
+  if (dialogKind.value === 'http-target') {
+    let baseURL
+    try {
+      baseURL = new URL(data.base_url?.trim() || '')
+    } catch {
+      baseURL = null
+    }
+    if (!data.name?.trim() || !baseURL || !['http:', 'https:'].includes(baseURL.protocol) || baseURL.username || baseURL.password) {
+      dialogError.value = '请填写目标名称和不含账号信息的 HTTP(S) 基础 URL'
+      return
+    }
+    const material = credentialMaterial(data.credential_type, data)
+    if (!material) return
+    path = '/v1/web/targets'
+    payload = {
+      name: data.name.trim(),
+      description: '',
+      connector_type: 'HTTP',
+      connection_config: {
+        base_url: baseURL.href.replace(/\/$/, ''),
+        allowed_http_methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+      },
+      credential_alias: 'default',
+      credential_type: data.credential_type,
+      ...material,
+    }
+  } else if (dialogKind.value === 'postgres-target') {
+    const port = Number(data.port)
+    if (!data.name?.trim() || !data.host?.trim() || !data.database?.trim() || !Number.isInteger(port) || port < 1 || port > 65535) {
+      dialogError.value = '请填写目标名称、主机、数据库和 1–65535 的端口'
+      return
+    }
+    const material = credentialMaterial(data.credential_type, data)
+    if (!material) return
+    const dynamic = data.credential_type === 'POSTGRESQL_DYNAMIC'
+    path = '/v1/web/targets'
+    payload = {
+      name: data.name.trim(),
+      description: '',
+      connector_type: 'POSTGRESQL',
+      connection_config: {
+        host: data.host.trim(),
+        port,
+        database: data.database.trim(),
+        tls_mode: 'require',
+        require_dynamic: dynamic,
+      },
+      credential_alias: 'default',
+      credential_type: data.credential_type,
+      ...material,
+    }
+  } else if (dialogKind.value === 'credential') {
+    const credential = dialogContext.value?.credential
+    const material = credentialMaterial(credential?.credential_type, data)
+    if (!credential || !material) return
+    path = `/v1/web/credentials/${credential.id}`
+    method = 'PATCH'
+    payload = material
+  } else if (dialogKind.value === 'operation-set') {
+    if (!data.name?.trim() || !['HTTP', 'POSTGRESQL', 'SIGN'].includes(data.executor_type)) {
+      dialogError.value = '请填写操作集名称并选择执行器类型'
+      return
+    }
+    path = '/v1/web/operation-sets'
+    payload = {
+      name: data.name.trim(),
+      description: data.description?.trim() || '',
+      executor_type: data.executor_type,
+    }
+  } else if (dialogKind.value === 'operation') {
+    const { set, operation } = dialogContext.value || {}
+    if (!set || (!operation && !/^[a-z0-9_]+$/.test(data.key?.trim() || '')) || !data.name?.trim()) {
+      dialogError.value = '请填写名称；新操作键只能包含小写字母、数字和下划线'
+      return
+    }
+    if (!['LOW', 'MEDIUM', 'HIGH'].includes(data.risk_level)) {
+      dialogError.value = '请选择正确的风险等级'
+      return
+    }
+    const argumentsSchema = parseJSONObject('公开参数 Schema', data.arguments_schema)
+    if (!argumentsSchema) return
+    const executionTemplate = parseJSONObject('私有执行模板', data.execution_template)
+    if (!executionTemplate) return
+    path = operation
+      ? `/v1/web/operations/${operation.id}/versions`
+      : `/v1/web/operation-sets/${set.id}/operations`
+    payload = {
+      ...(!operation ? { key: data.key.trim() } : {}),
+      name: data.name.trim(),
+      description: data.description?.trim() || '',
+      risk_level: data.risk_level,
+      arguments_schema: argumentsSchema,
+      execution_template: executionTemplate,
+    }
+  } else if (dialogKind.value === 'binding') {
+    const { operation, binding } = dialogContext.value || {}
+    const version = Number(data.version)
+    const available = operation ? versionsFor(operation.id).map((item) => item.version) : []
+    if (!operation || !targets.value.some((target) => target.id === data.target_id) || !available.includes(version)) {
+      dialogError.value = '请选择有效的目标和已发布版本'
+      return
+    }
+    path = `/v1/web/targets/${data.target_id}/operations/${operation.id}`
+    method = 'PUT'
+    payload = { version, active: binding?.active ?? true }
+  } else {
+    return
+  }
+
+  busy.value = true
+  dialogError.value = ''
+  try {
+    await props.api(path, { method, body: JSON.stringify(payload) })
+    closeDialog(true)
+    await load()
+  } catch (failure) {
+    dialogError.value = failure.message
+  } finally {
+    wipeDialogSecrets()
+    busy.value = false
+  }
 }
 
 async function mutate(operation) {
@@ -414,6 +516,7 @@ async function mutate(operation) {
 }
 
 onMounted(load)
+onBeforeUnmount(() => closeDialog(true))
 </script>
 
 <template>
@@ -524,4 +627,174 @@ onMounted(load)
     </div>
     <div v-else class="empty">暂无凭证</div>
   </template>
+
+  <ModalDialog
+    :open="Boolean(dialogKind)"
+    :title="dialogConfig.title"
+    :description="dialogConfig.description"
+    :submit-label="dialogConfig.submitLabel"
+    :wide="dialogConfig.wide"
+    :busy="busy"
+    :error="dialogError"
+    @close="closeDialog"
+    @submit="submitDialog"
+  >
+    <div v-if="dialogKind === 'http-target'" class="modal-grid">
+      <label>
+        目标名称
+        <input v-model="dialogData.name" name="target_name" maxlength="128" required autofocus autocomplete="off">
+      </label>
+      <label>
+        基础 URL
+        <input v-model="dialogData.base_url" name="base_url" type="url" placeholder="https://gitlab.com" required autocomplete="off">
+      </label>
+      <label class="span-2">
+        凭证类型
+        <select v-model="dialogData.credential_type" name="credential_type" required @change="wipeDialogSecrets">
+          <option value="API_KEY">API Key</option>
+          <option value="ACCESS_TOKEN">Access Token</option>
+          <option value="USERNAME_PASSWORD">用户名和密码</option>
+          <option value="CERTIFICATE">证书和私钥（仅存储）</option>
+          <option value="TRANSIT_KEY">OpenBao Transit Key</option>
+        </select>
+      </label>
+    </div>
+
+    <div v-else-if="dialogKind === 'postgres-target'" class="modal-grid">
+      <label>
+        目标名称
+        <input v-model="dialogData.name" name="target_name" maxlength="128" required autofocus autocomplete="off">
+      </label>
+      <label>
+        主机名或 IP
+        <input v-model="dialogData.host" name="database_host" required autocomplete="off">
+      </label>
+      <label>
+        端口
+        <input v-model.number="dialogData.port" name="database_port" type="number" min="1" max="65535" step="1" required>
+      </label>
+      <label>
+        数据库名
+        <input v-model="dialogData.database" name="database_name" required autocomplete="off">
+      </label>
+      <label class="span-2">
+        凭证方式
+        <select v-model="dialogData.credential_type" name="credential_type" required @change="wipeDialogSecrets">
+          <option value="USERNAME_PASSWORD">固定用户名和密码</option>
+          <option value="POSTGRESQL_DYNAMIC">OpenBao 动态凭证</option>
+        </select>
+      </label>
+    </div>
+
+    <div v-if="['http-target', 'postgres-target', 'credential'].includes(dialogKind)" class="modal-grid">
+      <label v-if="dialogData.credential_type === 'API_KEY'" class="span-2">
+        API Key（只写入一次）
+        <input v-model="dialogData.api_key" name="api_key" type="password" required autocomplete="off" spellcheck="false">
+      </label>
+      <label v-if="dialogData.credential_type === 'ACCESS_TOKEN'" class="span-2">
+        Access Token（只写入一次）
+        <input v-model="dialogData.access_token" name="access_token" type="password" required autocomplete="off" spellcheck="false">
+      </label>
+      <template v-if="dialogData.credential_type === 'USERNAME_PASSWORD'">
+        <label>
+          目标用户名
+          <input v-model="dialogData.username" name="credential_username" required autocomplete="off" spellcheck="false">
+        </label>
+        <label>
+          目标密码（只写入一次）
+          <input v-model="dialogData.password" name="credential_password" type="password" required autocomplete="off" spellcheck="false">
+        </label>
+      </template>
+      <template v-if="dialogData.credential_type === 'CERTIFICATE'">
+        <label class="span-2">
+          PEM 证书（仅存储）
+          <textarea v-model="dialogData.certificate" name="certificate" class="code-input" required autocomplete="off" spellcheck="false"></textarea>
+        </label>
+        <label class="span-2">
+          PEM 私钥（只写入一次）
+          <textarea v-model="dialogData.private_key" name="private_key" class="code-input" required autocomplete="off" spellcheck="false"></textarea>
+        </label>
+      </template>
+      <label v-if="dialogData.credential_type === 'TRANSIT_KEY'" class="span-2">
+        Transit Key 类型
+        <input v-model="dialogData.transit_key_type" name="transit_key_type" required autocomplete="off" spellcheck="false">
+      </label>
+      <template v-if="dialogData.credential_type === 'POSTGRESQL_DYNAMIC'">
+        <label class="span-2">
+          OpenBao Database Connection 名称
+          <input v-model="dialogData.connection_name" name="connection_name" required autocomplete="off" spellcheck="false">
+        </label>
+        <label class="span-2">
+          创建临时用户的 SQL
+          <textarea v-model="dialogData.creation_statement" name="creation_statement" class="code-input" required autocomplete="off" spellcheck="false"></textarea>
+        </label>
+      </template>
+      <p class="field-help span-2">敏感字段只会在本次提交期间保存在页面内存中，提交、取消或离开页面后会清空。</p>
+    </div>
+
+    <div v-else-if="dialogKind === 'operation-set'" class="modal-grid">
+      <label class="span-2">
+        操作集名称
+        <input v-model="dialogData.name" name="operation_set_name" maxlength="128" required autofocus autocomplete="off">
+      </label>
+      <label class="span-2">
+        操作集说明
+        <textarea v-model="dialogData.description" name="operation_set_description" maxlength="1000" autocomplete="off"></textarea>
+      </label>
+      <label class="span-2">
+        执行器类型
+        <select v-model="dialogData.executor_type" name="executor_type" required>
+          <option value="HTTP">HTTP</option>
+          <option value="POSTGRESQL">PostgreSQL</option>
+          <option value="SIGN">Transit 签名</option>
+        </select>
+      </label>
+    </div>
+
+    <div v-else-if="dialogKind === 'operation'" class="modal-grid">
+      <label v-if="!dialogContext?.operation">
+        操作键
+        <input v-model="dialogData.key" name="operation_key" pattern="[a-z0-9_]+" required autofocus autocomplete="off" spellcheck="false">
+      </label>
+      <label :class="{ 'span-2': dialogContext?.operation }">
+        操作名称
+        <input v-model="dialogData.name" name="operation_name" maxlength="128" required :autofocus="Boolean(dialogContext?.operation)" autocomplete="off">
+      </label>
+      <label class="span-2">
+        操作说明
+        <textarea v-model="dialogData.description" name="operation_description" maxlength="2000" autocomplete="off"></textarea>
+      </label>
+      <label class="span-2">
+        风险等级
+        <select v-model="dialogData.risk_level" name="risk_level" required>
+          <option value="LOW">LOW</option>
+          <option value="MEDIUM">MEDIUM</option>
+          <option value="HIGH">HIGH</option>
+        </select>
+      </label>
+      <label class="span-2">
+        公开参数 Schema（JSON 对象）
+        <textarea v-model="dialogData.arguments_schema" name="arguments_schema" class="code-input" required spellcheck="false"></textarea>
+      </label>
+      <label class="span-2">
+        私有执行模板（JSON 对象）
+        <textarea v-model="dialogData.execution_template" name="execution_template" class="code-input" required spellcheck="false"></textarea>
+      </label>
+    </div>
+
+    <div v-else-if="dialogKind === 'binding'" class="modal-grid">
+      <label class="span-2">
+        目标
+        <select v-model="dialogData.target_id" name="binding_target" :disabled="Boolean(dialogContext?.binding)" required :autofocus="!dialogContext?.binding">
+          <option v-for="target in targets" :key="target.id" :value="target.id">{{ target.name }} · {{ target.id }}</option>
+        </select>
+      </label>
+      <label class="span-2">
+        精确版本
+        <select v-model.number="dialogData.version" name="binding_version" required :autofocus="Boolean(dialogContext?.binding)">
+          <option v-for="version in versionsFor(dialogContext?.operation?.id)" :key="version.version" :value="version.version">v{{ version.version }} · {{ version.name }}</option>
+        </select>
+      </label>
+    </div>
+  </ModalDialog>
 </template>

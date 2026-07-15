@@ -1,6 +1,7 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { formatDate, prettyJSON } from '../helpers.js'
+import ModalDialog from '../components/ModalDialog.vue'
 
 const props = defineProps({ api: { type: Function, required: true } })
 const records = ref([])
@@ -8,6 +9,34 @@ const auditEvents = ref(null)
 const loading = ref(true)
 const error = ref('')
 const busy = ref(false)
+const dialogKind = ref('')
+const dialogRecord = ref(null)
+const dialogError = ref('')
+const grantMinutes = ref(10)
+
+const dialogConfig = computed(() => {
+  if (dialogKind.value === 'approve') {
+    return {
+      title: '批准一次性授权',
+      description: '设置 Grant 必须开始执行的时限。到期后即使 Agent 尚未执行，也必须重新申请。',
+      submitLabel: '确认批准',
+    }
+  }
+  if (dialogKind.value === 'reject') {
+    return {
+      title: '拒绝授权申请',
+      description: '拒绝后不会创建 Grant，Agent 必须重新提交新的申请。',
+      submitLabel: '确认拒绝',
+      danger: true,
+    }
+  }
+  return {
+    title: '撤销一次性授权',
+    description: '尚未执行的 Grant 会被阻止；执行中的操作只会进行尽力取消。',
+    submitLabel: '确认撤销',
+    danger: true,
+  }
+})
 
 async function load() {
   loading.value = true
@@ -22,42 +51,60 @@ async function load() {
   }
 }
 
-async function decide(requestID, decision) {
-  const body = { decision }
-  if (decision === 'APPROVED') {
-    const minutes = window.prompt('授权必须开始的时限（分钟，1-10）', '10')
-    if (minutes === null) return
-    const parsed = Number(minutes)
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) {
-      window.alert('请输入 1 到 10 的整数分钟。')
+function openDecision(record, decision) {
+  dialogRecord.value = record
+  dialogError.value = ''
+  grantMinutes.value = 10
+  dialogKind.value = decision === 'APPROVED' ? 'approve' : 'reject'
+}
+
+function openRevoke(record) {
+  dialogRecord.value = record
+  dialogError.value = ''
+  dialogKind.value = 'revoke'
+}
+
+async function submitDialog() {
+  const record = dialogRecord.value
+  if (!record) return
+
+  let path
+  let body
+  if (dialogKind.value === 'approve') {
+    const minutes = Number(grantMinutes.value)
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10) {
+      dialogError.value = '请输入 1 到 10 的整数分钟'
       return
     }
-    body.grant_ttl_seconds = parsed * 60
+    path = `/v1/web/authorizations/${record.request_id}/decision`
+    body = { decision: 'APPROVED', grant_ttl_seconds: minutes * 60 }
+  } else if (dialogKind.value === 'reject') {
+    path = `/v1/web/authorizations/${record.request_id}/decision`
+    body = { decision: 'REJECTED' }
+  } else {
+    path = `/v1/web/authorizations/${record.request_id}/revoke`
+    body = {}
   }
-  await mutate(() => props.api(`/v1/web/authorizations/${requestID}/decision`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  }))
-}
 
-async function revoke(requestID) {
-  await mutate(() => props.api(`/v1/web/authorizations/${requestID}/revoke`, {
-    method: 'POST',
-    body: '{}',
-  }))
-}
-
-async function mutate(operation) {
   busy.value = true
-  error.value = ''
+  dialogError.value = ''
   try {
-    await operation()
+    await props.api(path, { method: 'POST', body: JSON.stringify(body) })
+    closeDialog(true)
     await load()
   } catch (failure) {
-    error.value = failure.message
+    dialogError.value = failure.message
   } finally {
     busy.value = false
   }
+}
+
+function closeDialog(force = false) {
+  if (busy.value && !force) return
+  dialogKind.value = ''
+  dialogRecord.value = null
+  dialogError.value = ''
+  grantMinutes.value = 10
 }
 
 async function showAudit(requestID) {
@@ -114,12 +161,36 @@ onMounted(load)
       <pre class="operation">{{ prettyJSON(record.operation) }}</pre>
       <div class="actions">
         <template v-if="record.status === 'PENDING_APPROVAL'">
-          <button type="button" :disabled="busy" @click="decide(record.request_id, 'APPROVED')">批准</button>
-          <button type="button" class="danger" :disabled="busy" @click="decide(record.request_id, 'REJECTED')">拒绝</button>
+          <button type="button" :disabled="busy" @click="openDecision(record, 'APPROVED')">批准</button>
+          <button type="button" class="danger" :disabled="busy" @click="openDecision(record, 'REJECTED')">拒绝</button>
         </template>
         <button type="button" class="secondary" :disabled="busy" @click="showAudit(record.request_id)">审计</button>
-        <button v-if="record.status === 'APPROVED'" type="button" class="danger" :disabled="busy" @click="revoke(record.request_id)">撤销</button>
+        <button v-if="record.status === 'APPROVED'" type="button" class="danger" :disabled="busy" @click="openRevoke(record)">撤销</button>
       </div>
     </article>
   </div>
+
+  <ModalDialog
+    :open="Boolean(dialogKind)"
+    :title="dialogConfig.title"
+    :description="dialogConfig.description"
+    :submit-label="dialogConfig.submitLabel"
+    :danger="dialogConfig.danger"
+    :close-on-backdrop="dialogKind !== 'approve'"
+    :busy="busy"
+    :error="dialogError"
+    @close="closeDialog"
+    @submit="submitDialog"
+  >
+    <div v-if="dialogKind === 'approve'" class="modal-grid">
+      <label class="span-2">
+        必须开始执行的时限（分钟）
+        <input v-model.number="grantMinutes" name="grant_minutes" type="number" min="1" max="10" step="1" required autofocus>
+      </label>
+      <p class="field-help span-2">允许 1–10 分钟。Grant 一旦执行或过期都不能重复使用。</p>
+    </div>
+    <p v-else class="modal-warning">
+      {{ dialogRecord?.agent_name }} → {{ dialogRecord?.target_name }}，操作完成后无法通过这个弹窗恢复。
+    </p>
+  </ModalDialog>
 </template>

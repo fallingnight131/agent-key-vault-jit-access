@@ -93,6 +93,26 @@ function findButton(wrapper, label) {
   return button
 }
 
+function dialogForm(wrapper) {
+  return wrapper.get('dialog[open] form')
+}
+
+async function fillOperationDialog(wrapper, {
+  key,
+  name,
+  description,
+  risk = 'LOW',
+  schema = '{"type":"object","properties":{},"required":[],"additionalProperties":false}',
+  template = '{"kind":"HTTP","http":{"method":"GET","path":"/"}}',
+}) {
+  if (key !== undefined) await wrapper.get('input[name="operation_key"]').setValue(key)
+  await wrapper.get('input[name="operation_name"]').setValue(name)
+  await wrapper.get('textarea[name="operation_description"]').setValue(description)
+  await wrapper.get('select[name="risk_level"]').setValue(risk)
+  await wrapper.get('textarea[name="arguments_schema"]').setValue(schema)
+  await wrapper.get('textarea[name="execution_template"]').setValue(template)
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -122,15 +142,16 @@ describe('安全操作目录', () => {
 
   it('创建操作集并发布 v1 操作时先在客户端解析 JSON', async () => {
     const api = catalogAPI()
-    const prompt = vi.spyOn(window, 'prompt')
-    prompt
-      .mockReturnValueOnce('支付安全操作')
-      .mockReturnValueOnce('支付服务操作')
-      .mockReturnValueOnce('HTTP')
     const wrapper = mount(CatalogView, { props: { api } })
     await flushPromises()
 
     await findButton(wrapper, '新建操作集').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('dialog[open]').text()).toContain('新建安全操作集')
+    await wrapper.get('input[name="operation_set_name"]').setValue('支付安全操作')
+    await wrapper.get('textarea[name="operation_set_description"]').setValue('支付服务操作')
+    await wrapper.get('select[name="executor_type"]').setValue('HTTP')
+    await dialogForm(wrapper).trigger('submit')
     await flushPromises()
     const setCall = api.mock.calls.find(([path]) => path === '/v1/web/operation-sets')
     expect(setCall[1].method).toBe('POST')
@@ -140,14 +161,16 @@ describe('安全操作目录', () => {
       executor_type: 'HTTP',
     })
 
-    prompt
-      .mockReturnValueOnce('ticket_close')
-      .mockReturnValueOnce('关闭工单')
-      .mockReturnValueOnce('关闭指定工单')
-      .mockReturnValueOnce('HIGH')
-      .mockReturnValueOnce('{"type":"object","properties":{},"required":[],"additionalProperties":false}')
-      .mockReturnValueOnce('{"kind":"HTTP","http":{"method":"POST","path":"/tickets/close"}}')
     await findButton(wrapper, '发布 v1 操作').trigger('click')
+    await flushPromises()
+    await fillOperationDialog(wrapper, {
+      key: 'ticket_close',
+      name: '关闭工单',
+      description: '关闭指定工单',
+      risk: 'HIGH',
+      template: '{"kind":"HTTP","http":{"method":"POST","path":"/tickets/close"}}',
+    })
+    await dialogForm(wrapper).trigger('submit')
     await flushPromises()
 
     const operationCall = api.mock.calls.find(([path]) => path === '/v1/web/operation-sets/set-1/operations')
@@ -166,32 +189,30 @@ describe('安全操作目录', () => {
 
   it('JSON 输入错误时不提交，保留草稿后可重试', async () => {
     const api = catalogAPI()
-    const prompt = vi.spyOn(window, 'prompt')
-    prompt
-      .mockReturnValueOnce('ticket_close')
-      .mockReturnValueOnce('关闭工单')
-      .mockReturnValueOnce('关闭指定工单')
-      .mockReturnValueOnce('HIGH')
-      .mockReturnValueOnce('{')
-      .mockReturnValueOnce('{"kind":"HTTP","http":{"method":"POST","path":"/tickets/close"}}')
     const wrapper = mount(CatalogView, { props: { api } })
     await flushPromises()
 
     await findButton(wrapper, '发布 v1 操作').trigger('click')
+    await flushPromises()
+    await fillOperationDialog(wrapper, {
+      key: 'ticket_close',
+      name: '关闭工单',
+      description: '关闭指定工单',
+      risk: 'HIGH',
+      schema: '{',
+      template: '{"kind":"HTTP","http":{"method":"POST","path":"/tickets/close"}}',
+    })
+    await dialogForm(wrapper).trigger('submit')
     expect(wrapper.get('[role="alert"]').text()).toContain('必须是有效的 JSON 对象')
     expect(api.mock.calls.filter(([path]) => path.includes('/operations')).length).toBe(0)
+    expect(wrapper.get('input[name="operation_key"]').element.value).toBe('ticket_close')
 
-    prompt
-      .mockReturnValueOnce('ticket_close')
-      .mockReturnValueOnce('关闭工单')
-      .mockReturnValueOnce('关闭指定工单')
-      .mockReturnValueOnce('HIGH')
-      .mockReturnValueOnce('{"type":"object","properties":{},"required":[],"additionalProperties":false}')
-      .mockReturnValueOnce('{"kind":"HTTP","http":{"method":"POST","path":"/tickets/close"}}')
-    await findButton(wrapper, '发布 v1 操作').trigger('click')
+    await wrapper.get('textarea[name="arguments_schema"]').setValue(
+      '{"type":"object","properties":{},"required":[],"additionalProperties":false}',
+    )
+    await dialogForm(wrapper).trigger('submit')
     await flushPromises()
 
-    expect(prompt.mock.calls[6][1]).toBe('ticket_close')
     expect(api.mock.calls.some(([path]) => path === '/v1/web/operation-sets/set-1/operations')).toBe(true)
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     wrapper.unmount()
@@ -199,16 +220,19 @@ describe('安全操作目录', () => {
 
   it('发布新版本时不重新发送操作键', async () => {
     const api = catalogAPI()
-    vi.spyOn(window, 'prompt')
-      .mockReturnValueOnce('读取工单 v3')
-      .mockReturnValueOnce('缩小参数范围')
-      .mockReturnValueOnce('LOW')
-      .mockReturnValueOnce('{"type":"object","properties":{},"required":[],"additionalProperties":false}')
-      .mockReturnValueOnce('{"kind":"HTTP","http":{"method":"GET","path":"/tickets"}}')
     const wrapper = mount(CatalogView, { props: { api } })
     await flushPromises()
 
     await findButton(wrapper, '发布新版本').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('input[name="operation_key"]').exists()).toBe(false)
+    await fillOperationDialog(wrapper, {
+      name: '读取工单 v3',
+      description: '缩小参数范围',
+      risk: 'LOW',
+      template: '{"kind":"HTTP","http":{"method":"GET","path":"/tickets"}}',
+    })
+    await dialogForm(wrapper).trigger('submit')
     await flushPromises()
 
     const publishCall = api.mock.calls.find(([path]) => path === '/v1/web/operations/operation-1/versions')
@@ -222,18 +246,84 @@ describe('安全操作目录', () => {
 
   it('把选定的精确版本绑定到具体目标', async () => {
     const api = catalogAPI()
-    vi.spyOn(window, 'prompt')
-      .mockReturnValueOnce('target-1')
-      .mockReturnValueOnce('1')
     const wrapper = mount(CatalogView, { props: { api } })
     await flushPromises()
 
     await findButton(wrapper, '绑定到目标').trigger('click')
     await flushPromises()
+    expect(wrapper.get('select[name="binding_target"]').element.value).toBe('target-1')
+    await wrapper.get('select[name="binding_version"]').setValue('1')
+    await dialogForm(wrapper).trigger('submit')
+    await flushPromises()
 
     const bindingCall = api.mock.calls.find(([path]) => path === '/v1/web/targets/target-1/operations/operation-1')
     expect(bindingCall[1].method).toBe('PUT')
     expect(JSON.parse(bindingCall[1].body)).toEqual({ version: 1, active: true })
+    wrapper.unmount()
+  })
+
+  it('取消或提交失败后清空 HTTP 目标弹窗中的敏感输入', async () => {
+    const api = vi.fn(async (_path, options = {}) => {
+      if (!options.method) return catalogFixture()
+      throw new Error('目标创建失败')
+    })
+    const wrapper = mount(CatalogView, { props: { api } })
+    await flushPromises()
+
+    await findButton(wrapper, '新建 HTTP 目标').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[name="api_key"]').setValue('temporary-api-key')
+    await findButton(wrapper, '取消').trigger('click')
+    await flushPromises()
+
+    expect(api.mock.calls.filter(([, options = {}]) => options.method === 'POST')).toHaveLength(0)
+    expect(wrapper.find('dialog[open]').exists()).toBe(false)
+
+    await findButton(wrapper, '新建 HTTP 目标').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('input[name="api_key"]').element.value).toBe('')
+
+    await wrapper.get('input[name="target_name"]').setValue('演示 API')
+    await wrapper.get('input[name="base_url"]').setValue('https://target.example.test')
+    await wrapper.get('input[name="api_key"]').setValue('one-shot-api-key')
+    await dialogForm(wrapper).trigger('submit')
+    await flushPromises()
+
+    expect(api.mock.calls.filter(([, options = {}]) => options.method === 'POST')).toHaveLength(1)
+    expect(wrapper.get('dialog[open] [role="alert"]').text()).toBe('目标创建失败')
+    expect(wrapper.get('input[name="api_key"]').element.value).toBe('')
+    wrapper.unmount()
+  })
+
+  it('更新凭证弹窗的标题区明确显示别名和凭证类型', async () => {
+    const api = catalogAPI()
+    const wrapper = mount(CatalogView, { props: { api } })
+    await flushPromises()
+
+    await findButton(wrapper, '更新凭证').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('dialog[open] h2').text()).toContain('更新凭证')
+    const description = wrapper.get('dialog[open] .modal-description').text()
+    expect(description).toContain('default')
+    expect(description).toContain('API_KEY')
+    wrapper.unmount()
+  })
+
+  it('点击 HTTP 目标输入弹窗的背景不会关闭或丢失草稿', async () => {
+    const api = catalogAPI()
+    const wrapper = mount(CatalogView, { props: { api } })
+    await flushPromises()
+
+    await findButton(wrapper, '新建 HTTP 目标').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[name="target_name"]').setValue('未完成的演示目标')
+
+    await wrapper.get('dialog[open]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('dialog[open]').exists()).toBe(true)
+    expect(wrapper.get('input[name="target_name"]').element.value).toBe('未完成的演示目标')
     wrapper.unmount()
   })
 

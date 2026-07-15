@@ -7,12 +7,12 @@
 - 回收、撤销、超时、取消、审计、180 天清理及崩溃 Lease 恢复均已通过真实 PostgreSQL 验证。
 - Agent Bearer API 已装配 PostgreSQL，覆盖目标发现、begin/heartbeat/end task、申请与所有权隔离的状态查询。
 - 人类登录/Session 已持久化；活动管理员初始化后可自助注册立即启用的无特权普通用户；Cookie 使用 HttpOnly/SameSite 且 HTTPS 默认 Secure，状态变更校验同源与双提交 CSRF。
-- Web 已支持列表、注册、轮换/撤销 Token 和启停自有 Agent；Token 只在注册/轮换当次返回。
+- Web 已支持列表、注册、轮换/幂等撤销 Token 和启停自有 Agent；Token 只在注册/轮换当次返回，列表区分永久、过期和已撤销状态。
 - 初始管理员命令只允许互动终端无回显输入两次密码；Web 管理员可列出已有用户并设置启停/`APPROVE_ALL`，唯一管理员不可变更。
 - OpenBao 控制客户端已仅实现 KV/Transit Key/Database Role 配置写入，对外类型无读取、签名、动态签发或 Lease 撤销方法。
 - 管理员目标/凭证 API 已支持录入、更新和停用；Vault 路径由服务端生成，秘密字节写入后清零且不返回路径。
 - Web 已按 owner/APPROVE_ALL/管理员权限列出申请，展示冻结操作与风险，支持原子决策、撤销、审计链和 incident 关闭；关闭告警不恢复 Grant。
-- 嵌入式 Web 工作台已覆盖登录、Agent Token 一次展示/变更、用户/目录管理、审批/撤销、审计和告警；业务数据仅用 textContent，无浏览器持久化。
+- 嵌入式 Web 工作台已覆盖登录、Agent Token 一次展示/变更、用户/目录管理、审批/撤销、审计和告警；交互表单使用统一 Vue 站内弹窗，业务数据仅用 textContent，无浏览器持久化。
 - Agent 运行时使用 Bearer Token 直连 control 与 execution HTTP API；根目录 `CLAUDE.md` 约束 Claude Code 维持 15 秒心跳、等待人工审批并只执行一次。
 - `make verify-all` 使用全新临时 PostgreSQL 验证迁移、并发、race 和不预置 Grant 的完整授权→执行→回收→审计闭环。
 - 管理员 Web 已覆盖 HTTP/PostgreSQL 目标、全部 MVP 凭证类型、全局审计和安全告警；证书可存储但申请阶段禁止执行。
@@ -21,12 +21,7 @@
 
 ## 当前工作项
 
-已完成工作项：
-
-```text
-ID / 目标：AKV-017.a / 本地 MVP 从根目录文件读取 Agent Token
-验收：本地 Claude Code 从根目录 `.agent-token` 读取 AKV Agent Token，不再要求无回显环境变量注入；文件已被 Git 忽略并要求 `0600`，除注册/轮换时 Web 一次性返回外，Token 不进入 Prompt、命令参数、日志、Agent 业务请求响应或 `.agent` 文档；CLAUDE、教程、README、架构与开发规则一致；目标系统/OpenBao 源凭证隔离不变；完整验证通过并本地提交
-```
+当前无进行中工作项。
 
 ## 队列
 
@@ -50,6 +45,7 @@ ID / 目标：AKV-017.a / 本地 MVP 从根目录文件读取 Agent Token
 | `AKV-015.a` | `DONE` | 014.a | 管理员安全操作目录、版本化目标绑定与 Agent 动态 Schema 申请 |
 | `AKV-016.a` | `DONE` | 015.a | 以 GitLab 项目查询替换本地健康接口演示教程 |
 | `AKV-017.a` | `DONE` | 016.a | 本地 Claude Code 从 Git 忽略的根目录文件读取 Agent Token |
+| `AKV-018.a` | `DONE` | 017.a | 现代站内表单弹窗与 Agent Token 幂等撤销 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -67,10 +63,10 @@ ID / 目标：AKV-017.a / 本地 MVP 从根目录文件读取 Agent Token
 - 2026-07-15：`AKV-015.a` Vue 21 项测试与生产构建、`go vet`、全包单测/race、真实 PostgreSQL 迁移与 E2E、遗留原始请求默认拒绝、四个二进制构建和 `git diff --check` 通过。
 - 2026-07-16：`AKV-016.a` GitLab 官方认证与项目 API 复核、HTTP/目录/代理单测、`make verify` 和 `git diff --check` 通过。
 - 2026-07-16：`AKV-017.a` `.agent-token` Git 忽略/未跟踪检查、Vue 21 项测试与生产构建、`go vet`、全包单测和 `git diff --check` 通过。
+- 2026-07-16：`AKV-018.a` Vue 32 项测试、桌面/移动端浏览器冒烟、`make verify`、真实 PostgreSQL 迁移与代理测试、`git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-009.a`：补齐本地运行/分权策略、完整 Web 控制面、actor/拒绝审计和真实 PG E2E｜下一步无｜计划提交 `test(e2e): verify MVP security matrix`
 - 2026-07-15｜`AKV-010.a`：修复 hidden 被组件 display 覆盖导致登录后工作台不可见，并增加回归测试｜下一步无｜计划提交 `fix(web): honor hidden view state`
 - 2026-07-15｜`AKV-011.a`：将完整控制台迁移为 Vue 3 + Vite，保留单二进制与安全边界并更新本地教程｜下一步无｜计划提交 `feat(web): migrate console to Vue`
 - 2026-07-15｜`AKV-011.b`：将 Vue 工程迁移至根目录并保留 Go 嵌入产物边界｜下一步无｜计划提交 `refactor(web): separate source from embedded assets`
@@ -80,6 +76,7 @@ ID / 目标：AKV-017.a / 本地 MVP 从根目录文件读取 Agent Token
 - 2026-07-15｜`AKV-015.a`：实现管理员发布/绑定的版本化安全操作、Agent 公开 Schema 发现和统一一次执行，升级时终结遗留原始请求｜下一步无｜计划提交 `feat(auth): add safe operation catalog`
 - 2026-07-16｜`AKV-016.a`：用 GitLab 私有项目只读查询替换本地健康接口演示，补齐低权限令牌、审批执行、排错和撤销步骤｜下一步无｜计划提交 `docs(local): add GitLab target demo`
 - 2026-07-16｜`AKV-017.a`：本地 Claude Code 改从根目录 `.agent-token` 读取身份 Token，并同步交付提示、教程、架构与安全规则｜下一步无｜计划提交 `docs(agent): read token from root file`
+- 2026-07-16｜`AKV-018.a`：用统一 Vue 弹窗替换浏览器原生交互，区分 Token 状态并修复幂等撤销与错误映射｜下一步无｜计划提交 `fix(web): modernize dialogs and token revocation`
 
 ## MVP 验收
 
