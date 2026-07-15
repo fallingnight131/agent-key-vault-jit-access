@@ -64,3 +64,38 @@ func (repository *PostgreSQLIdentityRepository) RevokeSession(ctx context.Contex
 	}
 	return nil
 }
+
+func (repository *PostgreSQLIdentityRepository) ListUsers(ctx context.Context) ([]identity.User, error) {
+	rows, err := repository.database.QueryContext(ctx, `SELECT id,username,is_admin,approve_all,status FROM users ORDER BY username,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []identity.User
+	for rows.Next() {
+		var user identity.User
+		var status string
+		if err := rows.Scan(&user.ID, &user.Username, &user.IsAdmin, &user.ApproveAll, &status); err != nil {
+			return nil, err
+		}
+		user.OwnerActive = status == "ACTIVE"
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
+func (repository *PostgreSQLIdentityRepository) UpdateNonAdminUser(ctx context.Context, userID string, active, approveAll bool, now time.Time) error {
+	status := "DISABLED"
+	if active {
+		status = "ACTIVE"
+	}
+	result, err := repository.database.ExecContext(ctx, `UPDATE users SET status=$2,approve_all=$3,updated_at=$4 WHERE id=$1 AND is_admin=false`, userID, status, approveAll, now)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows != 1 {
+		return identity.ErrNotFound
+	}
+	return nil
+}

@@ -68,7 +68,7 @@ func main() {
 		logger.Error("identity service initialization failed")
 		os.Exit(1)
 	}
-	server := control.NewServer(config, logger, runtime, &control.WebRuntime{Identity: identityService, Agents: agentService})
+	server := control.NewServer(config, logger, runtime, &control.WebRuntime{Identity: identityService, Agents: agentService, Users: identityService})
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

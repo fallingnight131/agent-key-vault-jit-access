@@ -67,6 +67,8 @@ type Repository interface {
 	CreateSession(context.Context, SessionRecord) error
 	FindActiveSessionByTokenHash(context.Context, [sha256.Size]byte, time.Time) (User, error)
 	RevokeSession(context.Context, [sha256.Size]byte, time.Time) error
+	ListUsers(context.Context) ([]User, error)
+	UpdateNonAdminUser(context.Context, string, bool, bool, time.Time) error
 }
 
 type Service struct {
@@ -173,6 +175,27 @@ func (service *Service) Logout(ctx context.Context, token string) error {
 	}
 	if err := service.repository.RevokeSession(ctx, sha256.Sum256([]byte(token)), service.now()); err != nil {
 		return ErrInvalidCredentials
+	}
+	return nil
+}
+
+func (service *Service) ListUsers(ctx context.Context, actor User) ([]User, error) {
+	if !actor.CanManageUsersAndTargets() {
+		return nil, ErrInvalidInput
+	}
+	users, err := service.repository.ListUsers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	return users, nil
+}
+
+func (service *Service) UpdateUser(ctx context.Context, actor User, userID string, active, approveAll bool) error {
+	if !actor.CanManageUsersAndTargets() || userID == "" {
+		return ErrInvalidInput
+	}
+	if err := service.repository.UpdateNonAdminUser(ctx, userID, active, approveAll, service.now()); err != nil {
+		return ErrInvalidInput
 	}
 	return nil
 }

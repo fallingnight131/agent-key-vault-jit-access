@@ -51,6 +51,21 @@ func (repository *fakeRepository) RevokeSession(_ context.Context, hash [sha256.
 	return nil
 }
 
+func (repository *fakeRepository) ListUsers(context.Context) ([]User, error) {
+	if repository.account == nil {
+		return nil, nil
+	}
+	return []User{publicUser(*repository.account)}, nil
+}
+
+func (repository *fakeRepository) UpdateNonAdminUser(_ context.Context, userID string, active, approveAll bool, _ time.Time) error {
+	if repository.account == nil || repository.account.ID != userID || repository.account.IsAdmin {
+		return ErrNotFound
+	}
+	repository.account.Active, repository.account.ApproveAll = active, approveAll
+	return nil
+}
+
 func TestBootstrapAdminHashesPasswordAndIsUnique(t *testing.T) {
 	repository := &fakeRepository{}
 	service := newTestService(t, repository)
@@ -160,6 +175,24 @@ func TestUserPermissions(t *testing.T) {
 				t.Errorf("CanManageUsersAndTargets() = %t, want %t", got, test.manage)
 			}
 		})
+	}
+}
+
+func TestUserManagementRequiresAdminAndPreservesAdmin(t *testing.T) {
+	repository := &fakeRepository{}
+	service := newTestService(t, repository)
+	admin, err := service.BootstrapAdmin(context.Background(), "admin", "password")
+	if err != nil {
+		t.Fatalf("BootstrapAdmin() error = %v", err)
+	}
+	if users, err := service.ListUsers(context.Background(), admin); err != nil || len(users) != 1 {
+		t.Fatalf("ListUsers() users=%+v error=%v", users, err)
+	}
+	if _, err := service.ListUsers(context.Background(), User{ID: "user", OwnerActive: true}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("non-admin ListUsers() error = %v", err)
+	}
+	if err := service.UpdateUser(context.Background(), admin, admin.ID, false, false); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("admin UpdateUser() error = %v", err)
 	}
 }
 

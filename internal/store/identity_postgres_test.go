@@ -37,6 +37,20 @@ func TestPostgreSQLWebSessionLifecycle(t *testing.T) {
 	if _, err := service.BootstrapAdmin(ctx, "second", "password"); !errors.Is(err, identity.ErrAlreadyInitialized) {
 		t.Fatalf("second BootstrapAdmin() error = %v", err)
 	}
+	const ordinaryUserID = "00000000-0000-4000-8000-000000000077"
+	if _, err := database.ExecContext(ctx, `INSERT INTO users (id,username,password_hash,status) VALUES ($1,'existing-user','fixture-hash','ACTIVE')`, ordinaryUserID); err != nil {
+		t.Fatalf("seed existing user: %v", err)
+	}
+	users, err := service.ListUsers(ctx, admin)
+	if err != nil || len(users) != 2 {
+		t.Fatalf("ListUsers() users=%+v error=%v", users, err)
+	}
+	if err := service.UpdateUser(ctx, admin, ordinaryUserID, false, true); err != nil {
+		t.Fatalf("UpdateUser() error = %v", err)
+	}
+	if err := service.UpdateUser(ctx, admin, admin.ID, false, false); !errors.Is(err, identity.ErrInvalidInput) {
+		t.Fatalf("admin UpdateUser() error = %v", err)
+	}
 	session, err := service.Login(ctx, "admin", "correct horse battery staple", time.Hour)
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)

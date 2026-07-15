@@ -54,6 +54,7 @@
 - 2026-07-15：控制服务从 `0600` DSN 文件连接并迁移 PostgreSQL；Agent API 仅以 Bearer Token 认证，对外 DTO 排除默认凭证、Vault 引用和内部连接地址，申请状态按 Agent 所有权查询。
 - 2026-07-15：Web Session 固定 8 小时，业务库只存 SHA-256 哈希；Session Cookie 为 HttpOnly + SameSite=Strict，HTTPS 公开源默认 Secure，变更路由同时校验 Origin 和可读 CSRF Cookie/请求头。
 - 2026-07-15：Web 用户只能列出和变更 owner 匹配的 Agent；Agent Token 只在注册/轮换响应返回一次，列表仅含过期时间；已撤销 Token 可在行锁保护下重新生成。
+- 2026-07-15：初始管理员通过独立 CLI 从互动 TTY 无回显双次读取密码，不接受密码参数/环境/文件；账号开通与改密依需求不在 MVP，Web 只管理已有非管理员的启停和 `APPROVE_ALL`。
 
 ## Agent 维护区
 
