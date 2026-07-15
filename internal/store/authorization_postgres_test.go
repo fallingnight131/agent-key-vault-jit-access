@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fallingnight/akv/internal/agent"
 	"github.com/fallingnight/akv/internal/authorization"
 	"github.com/fallingnight/akv/internal/domain"
 	"github.com/fallingnight/akv/internal/identity"
@@ -29,6 +30,24 @@ func TestPostgreSQLAuthorizationConcurrency(t *testing.T) {
 		t.Fatalf("PingContext() error = %v", err)
 	}
 	seedAuthorizationDatabase(t, database)
+	agentService := agent.NewService(NewPostgreSQLAgentRepository(database))
+	credential, err := agentService.Register(context.Background(), testUserID, "route-agent", agent.Token24Hours)
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if principal, err := agentService.Authenticate(context.Background(), credential.Token); err != nil || principal.AgentID != credential.AgentID {
+		t.Fatalf("Authenticate() principal=%+v error=%v", principal, err)
+	}
+	replacement, err := agentService.RotateToken(context.Background(), testUserID, credential.AgentID, agent.Token30Days)
+	if err != nil {
+		t.Fatalf("RotateToken() error = %v", err)
+	}
+	if _, err := agentService.Authenticate(context.Background(), credential.Token); !errors.Is(err, agent.ErrUnauthorized) {
+		t.Fatalf("old token Authenticate() error = %v", err)
+	}
+	if _, err := agentService.Authenticate(context.Background(), replacement.Token); err != nil {
+		t.Fatalf("replacement Authenticate() error = %v", err)
+	}
 
 	repository := NewPostgreSQLAuthorizationRepository(database)
 	service := authorization.NewApprovalService(repository)
