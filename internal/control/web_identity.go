@@ -26,6 +26,7 @@ type WebRuntime struct {
 	Identity WebIdentity
 	Agents   WebAgentManager
 	Users    WebUserManager
+	Catalog  WebCatalogManager
 	config   Config
 }
 
@@ -44,6 +45,12 @@ func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
 	if runtime.Users != nil {
 		mux.HandleFunc("GET /v1/web/users", runtime.listUsers)
 		mux.HandleFunc("PATCH /v1/web/users/{user_id}", runtime.updateUser)
+	}
+	if runtime.Catalog != nil {
+		mux.HandleFunc("GET /v1/web/catalog", runtime.listCatalog)
+		mux.HandleFunc("POST /v1/web/targets", runtime.createTarget)
+		mux.HandleFunc("PATCH /v1/web/targets/{target_id}", runtime.updateTarget)
+		mux.HandleFunc("PATCH /v1/web/credentials/{credential_id}", runtime.updateCredential)
 	}
 }
 

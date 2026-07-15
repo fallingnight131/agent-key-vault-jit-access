@@ -31,11 +31,11 @@ type TransitKey struct {
 }
 
 type DatabaseRole struct {
-	Name               string
-	ConnectionName     string
-	CreationStatements []string
-	DefaultTTL         time.Duration
-	MaxTTL             time.Duration
+	Name               string        `json:"-"`
+	ConnectionName     string        `json:"connection_name"`
+	CreationStatements []string      `json:"creation_statements"`
+	DefaultTTL         time.Duration `json:"default_ttl"`
+	MaxTTL             time.Duration `json:"max_ttl"`
 }
 
 // ExecutionClient is the capability used only by the execution proxy.

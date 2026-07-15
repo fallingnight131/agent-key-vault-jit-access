@@ -61,6 +61,16 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTarget() error = %v", err)
 	}
+	adminActor := identity.User{ID: testUserID, IsAdmin: true, OwnerActive: true}
+	targets, credentials, err := catalogService.ListCatalog(ctx, adminActor)
+	if err != nil || len(targets) != 1 || len(credentials) != 1 || credentials[0].ID != credential.ID {
+		t.Fatalf("ListCatalog() targets=%+v credentials=%+v error=%v", targets, credentials, err)
+	}
+	updatedConfiguration := target.ConnectionConfig
+	updatedConfiguration.AllowedHTTPMethods = []string{"POST", "PATCH"}
+	if err := catalogService.UpdateTarget(ctx, adminActor, target.ID, "updated", updatedConfiguration); err != nil {
+		t.Fatalf("UpdateTarget() error = %v", err)
+	}
 	discovered, err := catalogService.Discover(ctx, principal.AgentID)
 	if err != nil || len(discovered) != 1 || discovered[0].ID != target.ID {
 		t.Fatalf("Discover() targets=%+v error=%v", discovered, err)
@@ -109,5 +119,14 @@ func TestPostgreSQLAgentControlFlow(t *testing.T) {
 	}
 	if _, err := agentService.Authenticate(ctx, replacement.Token); err != nil {
 		t.Fatalf("replacement Authenticate() error = %v", err)
+	}
+	if err := catalogService.SetCredentialActive(ctx, adminActor, credential.ID, false); err != nil {
+		t.Fatalf("SetCredentialActive() error = %v", err)
+	}
+	if _, _, err := catalogService.ResolveForRequest(ctx, target.ID); !errors.Is(err, catalog.ErrUnavailable) {
+		t.Fatalf("disabled credential ResolveForRequest() error = %v", err)
+	}
+	if err := catalogService.SetTargetActive(ctx, adminActor, target.ID, false); err != nil {
+		t.Fatalf("SetTargetActive() error = %v", err)
 	}
 }

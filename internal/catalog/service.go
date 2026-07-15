@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fallingnight/akv/internal/identity"
+	"github.com/fallingnight/akv/internal/vault"
 )
 
 var (
@@ -86,12 +87,36 @@ type Repository interface {
 	CreateTargetWithDefaultCredential(context.Context, Target, Credential) error
 	ListActiveTargets(context.Context) ([]Target, error)
 	FindActiveTargetAndDefaultCredential(context.Context, string) (Target, Credential, error)
+	ListCatalog(context.Context) ([]Target, []Credential, error)
+	FindCredential(context.Context, string) (Credential, error)
+	FindTargetWithDefaultCredential(context.Context, string) (Target, Credential, error)
+	UpdateTarget(context.Context, Target, time.Time) error
+	SetTargetActive(context.Context, string, bool, time.Time) error
+	SetCredentialActive(context.Context, string, bool, time.Time) error
 }
 
 type Service struct {
 	repository Repository
+	writer     vault.ControlWriter
 	now        func() time.Time
 	newID      func() (string, error)
+}
+
+func NewManagementService(repository Repository, writer vault.ControlWriter) *Service {
+	return &Service{repository: repository, writer: writer, now: time.Now, newID: randomID}
+}
+
+type ProvisionInput struct {
+	CreateInput
+	SecretValues   map[string]*vault.SensitiveValue
+	TransitKeyType string
+	DatabaseRole   *vault.DatabaseRole
+}
+
+type CredentialUpdate struct {
+	SecretValues   map[string]*vault.SensitiveValue
+	TransitKeyType string
+	DatabaseRole   *vault.DatabaseRole
 }
 
 func NewService(repository Repository) *Service {
@@ -99,11 +124,22 @@ func NewService(repository Repository) *Service {
 }
 
 func (service *Service) CreateTarget(ctx context.Context, actor identity.User, input CreateInput) (Target, Credential, error) {
+	return service.createTarget(ctx, actor, input, false, nil, "", nil)
+}
+
+func (service *Service) ProvisionTarget(ctx context.Context, actor identity.User, input ProvisionInput) (Target, Credential, error) {
+	if service.writer == nil {
+		return Target{}, Credential{}, ErrUnavailable
+	}
+	return service.createTarget(ctx, actor, input.CreateInput, true, input.SecretValues, input.TransitKeyType, input.DatabaseRole)
+}
+
+func (service *Service) createTarget(ctx context.Context, actor identity.User, input CreateInput, provision bool, secrets map[string]*vault.SensitiveValue, transitType string, databaseRole *vault.DatabaseRole) (Target, Credential, error) {
 	if !actor.CanManageUsersAndTargets() {
 		return Target{}, Credential{}, ErrForbidden
 	}
 	input.Name, input.CredentialAlias, input.VaultPath = strings.TrimSpace(input.Name), strings.TrimSpace(input.CredentialAlias), strings.TrimSpace(input.VaultPath)
-	if input.Name == "" || input.CredentialAlias == "" || input.VaultPath == "" || !validCredentialType(input.CredentialType) {
+	if input.Name == "" || input.CredentialAlias == "" || !validCredentialType(input.CredentialType) || !provision && input.VaultPath == "" {
 		return Target{}, Credential{}, ErrInvalidInput
 	}
 	if err := validateConnection(input.ConnectorType, input.ConnectionConfig, input.CredentialType); err != nil {
@@ -118,6 +154,12 @@ func (service *Service) CreateTarget(ctx context.Context, actor identity.User, i
 		return Target{}, Credential{}, fmt.Errorf("generate credential ID: %w", err)
 	}
 	now := service.now()
+	if provision {
+		input.VaultPath = credentialVaultPath(input.CredentialType, credentialID)
+		if err := service.provisionCredential(ctx, input.CredentialType, input.VaultPath, secrets, transitType, databaseRole); err != nil {
+			return Target{}, Credential{}, err
+		}
+	}
 	target := Target{
 		ID: targetID, Name: input.Name, Description: input.Description,
 		ConnectorType: input.ConnectorType, ConnectionConfig: input.ConnectionConfig,
@@ -132,6 +174,112 @@ func (service *Service) CreateTarget(ctx context.Context, actor identity.User, i
 		return Target{}, Credential{}, fmt.Errorf("create target catalog entry: %w", err)
 	}
 	return target, credential, nil
+}
+
+func (service *Service) ListCatalog(ctx context.Context, actor identity.User) ([]Target, []Credential, error) {
+	if !actor.CanManageUsersAndTargets() {
+		return nil, nil, ErrForbidden
+	}
+	return service.repository.ListCatalog(ctx)
+}
+
+func (service *Service) UpdateTarget(ctx context.Context, actor identity.User, targetID, description string, configuration ConnectionConfig) error {
+	if !actor.CanManageUsersAndTargets() || targetID == "" {
+		return ErrForbidden
+	}
+	target, credential, err := service.repository.FindTargetWithDefaultCredential(ctx, targetID)
+	if err != nil || validateConnection(target.ConnectorType, configuration, credential.Type) != nil {
+		return ErrInvalidInput
+	}
+	target.Description, target.ConnectionConfig = description, configuration
+	return service.repository.UpdateTarget(ctx, target, service.now())
+}
+
+func (service *Service) SetTargetActive(ctx context.Context, actor identity.User, targetID string, active bool) error {
+	if !actor.CanManageUsersAndTargets() || targetID == "" {
+		return ErrForbidden
+	}
+	return service.repository.SetTargetActive(ctx, targetID, active, service.now())
+}
+
+func (service *Service) SetCredentialActive(ctx context.Context, actor identity.User, credentialID string, active bool) error {
+	if !actor.CanManageUsersAndTargets() || credentialID == "" {
+		return ErrForbidden
+	}
+	return service.repository.SetCredentialActive(ctx, credentialID, active, service.now())
+}
+
+func (service *Service) UpdateCredential(ctx context.Context, actor identity.User, credentialID string, update CredentialUpdate) error {
+	if !actor.CanManageUsersAndTargets() || credentialID == "" || service.writer == nil {
+		return ErrForbidden
+	}
+	credential, err := service.repository.FindCredential(ctx, credentialID)
+	if err != nil || !credential.Active {
+		return ErrUnavailable
+	}
+	return service.provisionCredential(ctx, credential.Type, credential.VaultPath, update.SecretValues, update.TransitKeyType, update.DatabaseRole)
+}
+
+func credentialVaultPath(credentialType CredentialType, id string) string {
+	switch credentialType {
+	case CredentialTransitKey:
+		return "transit/keys/" + id
+	case CredentialPostgreSQLDynamic:
+		return "database/creds/" + id
+	default:
+		return "kv/data/credentials/" + id
+	}
+}
+
+func (service *Service) provisionCredential(ctx context.Context, credentialType CredentialType, path string, secrets map[string]*vault.SensitiveValue, transitType string, databaseRole *vault.DatabaseRole) error {
+	switch credentialType {
+	case CredentialAPIKey:
+		if !exactSecretKeys(secrets, "api_key") {
+			return ErrInvalidInput
+		}
+		return service.writer.WriteKV(ctx, vault.KVWrite{Path: path, Values: secrets})
+	case CredentialAccessToken:
+		if !exactSecretKeys(secrets, "access_token") {
+			return ErrInvalidInput
+		}
+		return service.writer.WriteKV(ctx, vault.KVWrite{Path: path, Values: secrets})
+	case CredentialUsernamePassword:
+		if !exactSecretKeys(secrets, "username", "password") {
+			return ErrInvalidInput
+		}
+		return service.writer.WriteKV(ctx, vault.KVWrite{Path: path, Values: secrets})
+	case CredentialCertificate:
+		if !exactSecretKeys(secrets, "certificate", "private_key") {
+			return ErrInvalidInput
+		}
+		return service.writer.WriteKV(ctx, vault.KVWrite{Path: path, Values: secrets})
+	case CredentialTransitKey:
+		if len(secrets) != 0 || transitType == "" {
+			return ErrInvalidInput
+		}
+		return service.writer.ConfigureTransitKey(ctx, vault.TransitKey{Name: strings.TrimPrefix(path, "transit/keys/"), Type: transitType})
+	case CredentialPostgreSQLDynamic:
+		if len(secrets) != 0 || databaseRole == nil {
+			return ErrInvalidInput
+		}
+		role := *databaseRole
+		role.Name = strings.TrimPrefix(path, "database/creds/")
+		return service.writer.ConfigureDatabaseRole(ctx, role)
+	default:
+		return ErrInvalidInput
+	}
+}
+
+func exactSecretKeys(values map[string]*vault.SensitiveValue, keys ...string) bool {
+	if len(values) != len(keys) {
+		return false
+	}
+	for _, key := range keys {
+		if values[key] == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (service *Service) Discover(ctx context.Context, authenticatedAgentID string) ([]Target, error) {

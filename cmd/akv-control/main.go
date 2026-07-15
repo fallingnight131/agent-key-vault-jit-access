@@ -19,6 +19,7 @@ import (
 	"github.com/fallingnight/akv/internal/proxy"
 	"github.com/fallingnight/akv/internal/store"
 	"github.com/fallingnight/akv/internal/task"
+	"github.com/fallingnight/akv/internal/vault"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -54,8 +55,14 @@ func main() {
 		logger.Error("database migration failed", "error", err)
 		os.Exit(1)
 	}
+	controlWriter, err := vault.NewOpenBaoControlClient(os.Getenv("AKV_OPENBAO_CONTROL_ADDRESS"), os.Getenv("AKV_OPENBAO_CONTROL_TOKEN_FILE"))
+	if err != nil {
+		logger.Error("OpenBao control writer unavailable")
+		os.Exit(1)
+	}
+	defer controlWriter.Close()
 	agentService := agent.NewService(store.NewPostgreSQLAgentRepository(database))
-	catalogService := catalog.NewService(store.NewPostgreSQLCatalogRepository(database))
+	catalogService := catalog.NewManagementService(store.NewPostgreSQLCatalogRepository(database), controlWriter)
 	taskService := task.NewService(store.NewPostgreSQLTaskRepository(database))
 	requestRepository := store.NewPostgreSQLRequestRepository(database)
 	runtime := &control.AgentRuntime{
@@ -68,7 +75,7 @@ func main() {
 		logger.Error("identity service initialization failed")
 		os.Exit(1)
 	}
-	server := control.NewServer(config, logger, runtime, &control.WebRuntime{Identity: identityService, Agents: agentService, Users: identityService})
+	server := control.NewServer(config, logger, runtime, &control.WebRuntime{Identity: identityService, Agents: agentService, Users: identityService, Catalog: catalogService})
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

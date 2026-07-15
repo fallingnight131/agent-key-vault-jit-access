@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fallingnight/akv/internal/identity"
+	"github.com/fallingnight/akv/internal/vault"
 )
 
 type fakeRepository struct {
@@ -31,6 +32,58 @@ func (repository *fakeRepository) FindActiveTargetAndDefaultCredential(_ context
 		return Target{}, Credential{}, ErrUnavailable
 	}
 	return repository.target, repository.credential, nil
+}
+func (repository *fakeRepository) ListCatalog(context.Context) ([]Target, []Credential, error) {
+	return []Target{repository.target}, []Credential{repository.credential}, nil
+}
+func (repository *fakeRepository) FindCredential(_ context.Context, id string) (Credential, error) {
+	if repository.credential.ID != id {
+		return Credential{}, ErrUnavailable
+	}
+	return repository.credential, nil
+}
+func (repository *fakeRepository) FindTargetWithDefaultCredential(_ context.Context, id string) (Target, Credential, error) {
+	if repository.target.ID != id {
+		return Target{}, Credential{}, ErrUnavailable
+	}
+	return repository.target, repository.credential, nil
+}
+func (repository *fakeRepository) UpdateTarget(_ context.Context, target Target, _ time.Time) error {
+	repository.target = target
+	return nil
+}
+func (repository *fakeRepository) SetTargetActive(_ context.Context, id string, active bool, _ time.Time) error {
+	if repository.target.ID != id {
+		return ErrUnavailable
+	}
+	repository.target.Active = active
+	return nil
+}
+func (repository *fakeRepository) SetCredentialActive(_ context.Context, id string, active bool, _ time.Time) error {
+	if repository.credential.ID != id {
+		return ErrUnavailable
+	}
+	repository.credential.Active = active
+	return nil
+}
+
+type fakeWriter struct {
+	path  string
+	calls int
+}
+
+func (writer *fakeWriter) WriteKV(_ context.Context, write vault.KVWrite) error {
+	writer.path = write.Path
+	writer.calls++
+	return nil
+}
+func (writer *fakeWriter) ConfigureTransitKey(context.Context, vault.TransitKey) error {
+	writer.calls++
+	return nil
+}
+func (writer *fakeWriter) ConfigureDatabaseRole(context.Context, vault.DatabaseRole) error {
+	writer.calls++
+	return nil
 }
 
 func TestCreateTargetRequiresAdmin(t *testing.T) {
@@ -68,6 +121,22 @@ func TestCreateAndResolveServerDefaultCredential(t *testing.T) {
 	}
 	if _, err := service.Discover(context.Background(), ""); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("anonymous Discover() error = %v", err)
+	}
+}
+
+func TestProvisionTargetGeneratesServerVaultPath(t *testing.T) {
+	repository := &fakeRepository{}
+	writer := &fakeWriter{}
+	service := NewManagementService(repository, writer)
+	ids := []string{"target-id", "credential-id"}
+	service.newID = func() (string, error) { id := ids[0]; ids = ids[1:]; return id, nil }
+	secret := vault.NewSensitiveValue([]byte("fixture"))
+	defer secret.Destroy()
+	input := validHTTPInput()
+	input.VaultPath = "attacker/path"
+	target, credential, err := service.ProvisionTarget(context.Background(), identity.User{ID: "admin", IsAdmin: true, OwnerActive: true}, ProvisionInput{CreateInput: input, SecretValues: map[string]*vault.SensitiveValue{"api_key": secret}})
+	if err != nil || target.ID != "target-id" || credential.VaultPath != "kv/data/credentials/credential-id" || writer.path != credential.VaultPath {
+		t.Fatalf("target=%+v credential=%+v path=%q error=%v", target, credential, writer.path, err)
 	}
 }
 

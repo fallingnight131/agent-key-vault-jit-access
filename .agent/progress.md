@@ -1,6 +1,6 @@
 # AKV 开发进度
 
-更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.e2`
+更新：2026-07-15｜总体：`IN_PROGRESS`｜当前：`AKV-008`｜下一项：`AKV-008.f`
 
 ## 恢复点
 
@@ -9,8 +9,9 @@
 - 人类登录/Session 已持久化；Cookie 使用 HttpOnly/SameSite 且 HTTPS 默认 Secure，状态变更校验同源与双提交 CSRF。
 - Web 已支持列表、注册、轮换/撤销 Token 和启停自有 Agent；Token 只在注册/轮换当次返回。
 - 初始管理员命令只允许互动终端无回显输入两次密码；Web 管理员可列出已有用户并设置启停/`APPROVE_ALL`，唯一管理员不可变更。
-- 下一轮 `AKV-008.e` 实现管理员目标/凭证录入、更新和停用，且控制面仅持有 OpenBao 写能力。
 - OpenBao 控制客户端已仅实现 KV/Transit Key/Database Role 配置写入，对外类型无读取、签名、动态签发或 Lease 撤销方法。
+- 管理员目标/凭证 API 已支持录入、更新和停用；Vault 路径由服务端生成，秘密字节写入后清零且不返回路径。
+- 下一轮 `AKV-008.f` 实现待审批列表、决策、主动撤销、审计时间线与异常处置 Web API。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
 
 ## 当前工作项
@@ -18,11 +19,11 @@
 下一最小切片：
 
 ```text
-ID / 目标：AKV-008.e2 / 实现目标与凭证管理 API
-验收条件：仅管理员可创建/更新/停用目标和凭证；凭证明文直接写 OpenBao 后清零且不进入 PG/响应/日志；Web 不可读取明文；控制 Token 仅写权限独立装配；CSRF 与真实 PG 集成
-修改范围：目标/凭证仓储与服务、OpenBao 写客户端、Web API、测试、memory/progress
+ID / 目标：AKV-008.f / 实现审批、撤销、审计与异常处置 Web API
+验收条件：普通用户仅见/审自有 Agent，APPROVE_ALL/管理员可全局审批；展示任务、原因、目标、凭证别名、冻结操作、有效期与风险；决策/撤销并发安全；审计关联链可查；管理员可关闭已处置 incident；CSRF 与真实 PG 集成
+修改范围：审批/审计/异常查询仓储、Web API/DTO、测试、memory/progress
 验证命令：make verify；make test-migrations-postgres
-风险 / 下一步：OpenBao 写入成功而 PG 失败需有明确失败语义，不得为便于回滚而读取旧凭证
+风险 / 下一步：审批 DTO 不得直接序列化内部记录，operation 可展示但必须排除认证头且不返回 vault_path
 ```
 
 ## 队列
@@ -48,11 +49,10 @@ ID / 目标：AKV-008.e2 / 实现目标与凭证管理 API
 
 ## 最近验证
 
-- 2026-07-15：`make verify`、identity/control/store race、`git diff --check` 和 `make test-migrations-postgres` 通过；Session 哈希、撤销、过期/停用拒绝及 Cookie/CSRF 已验证。
+- 2026-07-15：`make verify`、catalog/control/store/vault race、`git diff --check` 和 `make test-migrations-postgres` 通过；目标/凭证更新停用、服务端 Vault 路径和无秘密 DTO 已验证。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-007.a`：统一 5 秒回收并将失败永久阻断为 incident｜下一步 `AKV-007.b`｜计划提交 `feat(lifecycle): enforce terminal reclaim`
 - 2026-07-15｜`AKV-007.b`：实现撤销权限、申请/Grant 超时、45 秒失联和 Worker｜下一步 `AKV-007.c`｜计划提交 `feat(worker): sweep revocation and timeouts`
 - 2026-07-15｜`AKV-007.c`：投递执行取消 context 并让 end_task 撤销未完成 Grant｜下一步 `AKV-007.d`｜计划提交 `feat(proxy): deliver execution cancellation`
 - 2026-07-15｜`AKV-007.d`：实现状态触发审计、关联链与 180 天限量实际清理｜下一步 `AKV-007.e`｜计划提交 `feat(audit): persist safe lifecycle events`
@@ -62,6 +62,7 @@ ID / 目标：AKV-008.e2 / 实现目标与凭证管理 API
 - 2026-07-15｜`AKV-008.c`：实现自有 Agent 列表/注册/启停及 Token 一次返回的轮换/撤销｜下一步 `AKV-008.d`｜计划提交 `feat(control): manage owned agents`
 - 2026-07-15｜`AKV-008.d`：实现无回显 bootstrap 和已有用户启停/APPROVE_ALL，保护唯一管理员｜下一步 `AKV-008.e`｜计划提交 `feat(control): manage human users`
 - 2026-07-15｜`AKV-008.e1`：实现无读取能力的 OpenBao KV/Database Role 控制写客户端｜下一步 `AKV-008.e2`｜计划提交 `feat(vault): add control-plane writer`
+- 2026-07-15｜`AKV-008.e2`：实现服务端路径的目标/凭证录入更新停用与无秘密 Web DTO｜下一步 `AKV-008.f`｜计划提交 `feat(control): manage credential catalog`
 
 ## MVP 验收
 

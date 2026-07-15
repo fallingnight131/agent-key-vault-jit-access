@@ -56,6 +56,7 @@
 - 2026-07-15：Web 用户只能列出和变更 owner 匹配的 Agent；Agent Token 只在注册/轮换响应返回一次，列表仅含过期时间；已撤销 Token 可在行锁保护下重新生成。
 - 2026-07-15：初始管理员通过独立 CLI 从互动 TTY 无回显双次读取密码，不接受密码参数/环境/文件；账号开通与改密依需求不在 MVP，Web 只管理已有非管理员的启停和 `APPROVE_ALL`。
 - 2026-07-15：OpenBao 控制客户端是独立导出类型，只满足 `ControlWriter` 的 KV v2、不可导出 Transit Key 和 Database Role 写方法；凭证读取、签名、动态签发和 Lease 撤销仅存于执行客户端。
+- 2026-07-15：管理 API 忽略客户端 Vault 路径并按凭证 UUID 生成 KV/Transit/Database 引用；秘密以 base64 JSON 字节输入并在请求后清零，对外目录 DTO 仅含别名/类型/状态而无 Vault 引用。
 
 ## Agent 维护区
 
