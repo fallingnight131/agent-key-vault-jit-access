@@ -14,6 +14,7 @@ func NewServer(config Config, logger *slog.Logger, agentRuntime *AgentRuntime, w
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(map[string]string{"status": "ok"})
 	})
+	registerWebAssets(mux)
 	if agentRuntime != nil {
 		agentRuntime.Register(mux)
 	}

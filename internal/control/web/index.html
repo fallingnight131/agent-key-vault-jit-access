@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AKV 授权控制台</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body>
+<main id="login-view" class="login-shell">
+  <section class="login-card" aria-labelledby="login-title"><div class="brand-mark">AKV</div><p class="eyebrow">Agent Key Vault</p><h1 id="login-title">人工授权，秘密不离开边界</h1><p class="muted">登录以审批一次性操作、管理 Agent 并查看完整审计链。</p>
+    <form id="login-form"><label>用户名<input id="username" name="username" autocomplete="username" required></label><label>密码<input id="password" name="password" type="password" autocomplete="current-password" required></label><button type="submit">进入控制台</button><p id="login-error" class="error" role="alert"></p></form>
+  </section>
+</main>
+<div id="app-view" class="app-shell" hidden>
+  <aside><div class="wordmark"><span>AKV</span><small>CONTROL PLANE</small></div><nav aria-label="主导航"><button data-view="approvals" class="active">待审批</button><button data-view="agents">Agent</button><button data-view="catalog" data-admin>目标与凭证</button><button data-view="users" data-admin>用户</button><button data-view="incidents" data-admin>安全告警</button></nav><div class="identity"><strong id="current-user"></strong><span id="current-role"></span><button id="logout" class="quiet">退出</button></div></aside>
+  <main class="workspace"><header><div><p class="eyebrow">HUMAN CONTROL PLANE</p><h1 id="view-title">授权申请</h1></div><div id="status-pill" class="status-pill">已连接</div></header><section id="content" aria-live="polite"></section></main>
+</div>
+<dialog id="token-dialog"><form method="dialog"><p class="eyebrow">仅显示一次</p><h2>保存 Agent Token</h2><p>立即写入 MCP 的 0600 配置文件。关闭后无法再次查看。</p><pre id="token-value"></pre><button>我已安全保存</button></form></dialog>
+<script src="/assets/app.js" defer></script>
+</body></html>

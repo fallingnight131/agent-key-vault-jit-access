@@ -150,5 +150,5 @@ func (runtime *WebRuntime) clearCookie(response http.ResponseWriter, name string
 }
 
 func publicUserDTO(user identity.User) map[string]any {
-	return map[string]any{"id": user.ID, "username": user.Username, "is_admin": user.IsAdmin, "approve_all": user.ApproveAll}
+	return map[string]any{"id": user.ID, "username": user.Username, "is_admin": user.IsAdmin, "approve_all": user.ApproveAll, "owner_active": user.OwnerActive}
 }

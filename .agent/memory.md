@@ -58,6 +58,7 @@
 - 2026-07-15：OpenBao 控制客户端是独立导出类型，只满足 `ControlWriter` 的 KV v2、不可导出 Transit Key 和 Database Role 写方法；凭证读取、签名、动态签发和 Lease 撤销仅存于执行客户端。
 - 2026-07-15：管理 API 忽略客户端 Vault 路径并按凭证 UUID 生成 KV/Transit/Database 引用；秘密以 base64 JSON 字节输入并在请求后清零，对外目录 DTO 仅含别名/类型/状态而无 Vault 引用。
 - 2026-07-15：Web 申请查询在 SQL 中按 Agent owner/APPROVE_ALL/管理员限定，返回冻结 operation、别名和非秘密风险提示；审批/撤销复用原子服务，人工关闭 incident 只变更告警状态且 Grant 保持 `RECLAIM_FAILED`。
+- 2026-07-15：人类工作台作为 Go embed 静态资源与控制 API 同源，CSP 禁止外部脚本/对象/框架；不用 local/sessionStorage、innerHTML 或 console，Agent Token 仅在一次性 dialog 中用 textContent 展示。
 
 ## Agent 维护区
 
