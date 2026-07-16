@@ -54,7 +54,7 @@ async function submit() {
     <section class="login-card" aria-labelledby="login-title">
       <div class="brand-mark">AKV</div>
       <p class="eyebrow">Agent Key Vault</p>
-      <h1 id="login-title">人工授权，秘密不离开边界</h1>
+      <h1 id="login-title">人工控制面板</h1>
       <p class="muted">
         {{ isRegistering
           ? '注册普通用户账号，开始管理你的 Agent 和授权申请。'
