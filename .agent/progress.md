@@ -13,7 +13,7 @@
 - 管理员目标/凭证 API 已支持录入、更新和停用；Vault 路径由服务端生成，秘密字节写入后清零且不返回路径。
 - Web 已按 owner/APPROVE_ALL/管理员权限列出申请，展示冻结操作与风险，支持原子决策、撤销、审计链和 incident 关闭；关闭告警不恢复 Grant。
 - 嵌入式 Web 工作台已覆盖登录、Agent Token 一次展示/变更、用户/目录管理、审批/撤销、审计和告警；交互表单使用统一 Vue 站内弹窗，业务数据仅用 textContent，无浏览器持久化。
-- Agent 运行时使用 Bearer Token 直连 control 与 execution HTTP API；根目录 `CLAUDE.md` 约束 Claude Code 维持 15 秒心跳、等待人工审批并只执行一次。
+- Agent 运行时使用 Bearer Token 直连 control 与 execution HTTP API；根目录 `CLAUDE.md` 强制 Claude Code 使用项目级 `akv-access` Skill 的固定客户端维持心跳、等待人工审批并只执行一次。
 - `make verify-all` 使用全新临时 PostgreSQL 验证迁移、并发、race 和不预置 Grant 的完整授权→执行→回收→审计闭环。
 - 管理员 Web 已覆盖 HTTP/PostgreSQL 目标、全部 MVP 凭证类型、全局审计和安全告警；证书可存储但申请阶段禁止执行。
 - 控制 API 绝不返回 credential vault_path、哈希、Lease 或任何秘密字段。
@@ -46,6 +46,7 @@
 | `AKV-016.a` | `DONE` | 015.a | 以 GitLab 项目查询替换本地健康接口演示教程 |
 | `AKV-017.a` | `DONE` | 016.a | 本地 Claude Code 从 Git 忽略的根目录文件读取 Agent Token |
 | `AKV-018.a` | `DONE` | 017.a | 现代站内表单弹窗与 Agent Token 幂等撤销 |
+| `AKV-019.a` | `DONE` | 018.a | Claude Code 项目级 AKV Skill 与确定性直连客户端 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -64,10 +65,10 @@
 - 2026-07-16：`AKV-016.a` GitLab 官方认证与项目 API 复核、HTTP/目录/代理单测、`make verify` 和 `git diff --check` 通过。
 - 2026-07-16：`AKV-017.a` `.agent-token` Git 忽略/未跟踪检查、Vue 21 项测试与生产构建、`go vet`、全包单测和 `git diff --check` 通过。
 - 2026-07-16：`AKV-018.a` Vue 32 项测试、桌面/移动端浏览器冒烟、`make verify`、真实 PostgreSQL 迁移与代理测试、`git diff --check` 通过。
+- 2026-07-16：`AKV-019.a` Skill 结构校验、Node 客户端 3 项单测、真实本地只读目标发现、`make verify` 和 `git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-010.a`：修复 hidden 被组件 display 覆盖导致登录后工作台不可见，并增加回归测试｜下一步无｜计划提交 `fix(web): honor hidden view state`
 - 2026-07-15｜`AKV-011.a`：将完整控制台迁移为 Vue 3 + Vite，保留单二进制与安全边界并更新本地教程｜下一步无｜计划提交 `feat(web): migrate console to Vue`
 - 2026-07-15｜`AKV-011.b`：将 Vue 工程迁移至根目录并保留 Go 嵌入产物边界｜下一步无｜计划提交 `refactor(web): separate source from embedded assets`
 - 2026-07-15｜`AKV-012.a`：实现立即启用且固定无特权的账号密码自助注册、原子 Session 和可归因审计｜下一步无｜计划提交 `feat(web): add account registration`
@@ -77,6 +78,7 @@
 - 2026-07-16｜`AKV-016.a`：用 GitLab 私有项目只读查询替换本地健康接口演示，补齐低权限令牌、审批执行、排错和撤销步骤｜下一步无｜计划提交 `docs(local): add GitLab target demo`
 - 2026-07-16｜`AKV-017.a`：本地 Claude Code 改从根目录 `.agent-token` 读取身份 Token，并同步交付提示、教程、架构与安全规则｜下一步无｜计划提交 `docs(agent): read token from root file`
 - 2026-07-16｜`AKV-018.a`：用统一 Vue 弹窗替换浏览器原生交互，区分 Token 状态并修复幂等撤销与错误映射｜下一步无｜计划提交 `fix(web): modernize dialogs and token revocation`
+- 2026-07-16｜`AKV-019.a`：生成项目级 `akv-access` Skill 和固定 Node 客户端，消除临时请求脚本、错误心跳与执行格式猜测｜下一步无｜计划提交 `feat(agent): add deterministic AKV skill`
 
 ## MVP 验收
 

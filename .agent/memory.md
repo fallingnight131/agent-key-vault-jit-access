@@ -60,7 +60,7 @@
 - 2026-07-15：Web 申请查询在 SQL 中按 Agent owner/APPROVE_ALL/管理员限定，返回冻结 operation、别名和非秘密风险提示；审批/撤销复用原子服务，人工关闭 incident 只变更告警状态且 Grant 保持 `RECLAIM_FAILED`。
 - 2026-07-15：人类工作台使用 Vue 3 + Vite；可维护工程位于根目录 `web/`，生产产物输出到 `internal/control/web/dist/`，再由 Go embed 与控制 API 同源交付；源码扫描禁止 `v-html`、浏览器持久化、直接 HTML 写入和 console，CSP 禁止外部脚本/对象/框架，Agent Token 只在可清零的一次性 dialog 状态中展示。
 - 2026-07-15：管理员以 HTTP/PostgreSQL/Sign 操作集复用安全子集，发布不可变操作版本并将精确版本绑定到目标；Agent 发现 API 只返回公开 Schema，不返回私有模板、凭证或 Vault 引用。
-- 2026-07-16：Agent 使用 Bearer Token 直连 control 与 execution HTTP API；本地 Claude Code 从根目录、Git 忽略且 `0600` 的 `.agent-token` 读取 Token，并由 `CLAUDE.md` 约束精确 Origin、15 秒任务心跳、动态发现安全操作、人工审批和统一路由一次执行；正式产品不沿用文件交付，目标源凭证仍只进入 execution proxy。
+- 2026-07-16：Agent 使用 Bearer Token 直连 control 与 execution HTTP API；本地 Claude Code 由 `CLAUDE.md` 强制使用项目级 `akv-access` Skill 的固定 Node 客户端，从根目录、Git 忽略且 `0600` 的 `.agent-token` 读取 Token，并确定性处理精确 Origin、严格 JSON 心跳、动态发现、人工审批和统一路由一次执行；正式产品不沿用文件交付，目标源凭证仍只进入 execution proxy。
 - 2026-07-15：`make verify-all` 是完整交付门，包含静态检查、全包 race 和全新临时 PostgreSQL；E2E 不预置申请/Grant，贯通 Agent、任务、审批、代理、回收、拒绝重放与 actor 审计。
 - 2026-07-15：业务审计对申请/审批/主动撤销/拒绝 Claim 记录固定 USER/AGENT actor 和无敏感 metadata；唯一管理员可在 Web 查看最新 500 条全局审计。
 

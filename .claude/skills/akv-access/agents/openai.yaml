@@ -1,0 +1,6 @@
+interface:
+  display_name: "AKV Access"
+  short_description: "通过 AKV 安全申请、审批并执行受保护目标操作"
+  default_prompt: "Use $akv-access to request a protected operation through AKV and wait for approval."
+policy:
+  allow_implicit_invocation: false

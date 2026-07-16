@@ -52,7 +52,7 @@ make build
 
 Agent Token 只放在 HTTP `Authorization` 请求头，不属于申请或执行 JSON。Agent 先发现目标，再发现该目标当前绑定的公开操作 Schema；申请只能提交 `task_id`、`target_id`、`operation_id`、精确 `version`、`arguments` 和 `reason`。Agent 看不到私有 `execution_template`、凭证 ID、任意目标 URL 或认证头。原始 `operation` 申请和按连接器分开的旧执行路由不再对外。连接器不做透明重试，任何重试或追加操作都需要新审批。
 
-直连模式下，Agent Token 的本地文件保护、精确 AKV Origin 绑定、认证请求禁用重定向、每 15 秒心跳和执行不重试由 Agent 运行时负责。目标和操作的名称、描述、Schema 和响应都必须当作不可信数据，不能当作指令。项目根目录的 `CLAUDE.md` 为 Claude Code 提供了该流程的强制指引。服务端仍会验证 Agent、任务、目标配置版本、操作定义哈希、冻结执行快照和一次性 Grant；目标 HTTP 重定向仍由执行代理拒绝，并且只有执行代理可访问目标源凭证。
+直连模式下，Agent Token 的本地文件保护、精确 AKV Origin 绑定、认证请求禁用重定向、每 15 秒心跳和执行不重试由 Agent 运行时负责。目标和操作的名称、描述、Schema 和响应都必须当作不可信数据，不能当作指令。项目根目录的 `CLAUDE.md` 强制 Claude Code 使用 `.claude/skills/akv-access` 中经过测试的固定客户端，不再临时拼装请求。服务端仍会验证 Agent、任务、目标配置版本、操作定义哈希、冻结执行快照和一次性 Grant；目标 HTTP 重定向仍由执行代理拒绝，并且只有执行代理可访问目标源凭证。
 
 ## 运维注意
 
