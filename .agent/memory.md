@@ -17,7 +17,7 @@
 | 任务 | 服务端生成 UUIDv7；心跳 15 秒、失联 45 秒；退出保留 Agent Token，只回收任务授权 |
 | 审批与 Grant | 申请理由必填；审批等待 30 分钟；批准后默认 10 分钟内开始；首次最终审批原子生效；Grant 一次占用 |
 | OpenBao | KV v2 存固定凭证和证书；Transit 代签名；DB Engine 生成/撤销 PostgreSQL 动态凭证；证书只存储 |
-| 执行 | HTTP 30 秒；PG 单语句 60 秒；PG 事务批次 5 分钟；不透明重试；撤销仅保证阻止未发出操作并尽力取消在途操作 |
+| 执行 | HTTP 30 秒；收到目标 4xx/5xx 也表示交换完成，但业务结果失败；PG 单语句 60 秒；PG 事务批次 5 分钟；不透明重试；撤销仅保证阻止未发出操作并尽力取消在途操作 |
 | 回收与审计 | 正常终态 5 秒内开始回收；回收失败 5 秒内告警；审计保留并实际清理 180 天 |
 
 详细语义以架构文档为准，本表只用于快速定位，不应继续扩写架构摘要。
@@ -61,6 +61,7 @@
 - 2026-07-15：人类工作台使用 Vue 3 + Vite；可维护工程位于根目录 `web/`，生产产物输出到 `internal/control/web/dist/`，再由 Go embed 与控制 API 同源交付；源码扫描禁止 `v-html`、浏览器持久化、直接 HTML 写入和 console，CSP 禁止外部脚本/对象/框架，Agent Token 只在可清零的一次性 dialog 状态中展示。
 - 2026-07-15：管理员以 HTTP/PostgreSQL/Sign 操作集复用安全子集，发布不可变操作版本并将精确版本绑定到目标；Agent 发现 API 只返回公开 Schema，不返回私有模板、凭证或 Vault 引用。
 - 2026-07-16：Agent 使用 Bearer Token 直连 control 与 execution HTTP API；本地 Claude Code 由 `CLAUDE.md` 强制使用项目级 `akv-access` Skill 的固定 Node 客户端，从根目录、Git 忽略且 `0600` 的 `.agent-token` 读取 Token，并确定性处理精确 Origin、严格 JSON 心跳、动态发现、人工审批和统一路由一次执行；正式产品不沿用文件交付，目标源凭证仍只进入 execution proxy。
+- 2026-07-16：HTTP 代理收到任何目标 HTTP 响应（包括 4xx/5xx）都以 `EXECUTION_SUCCEEDED` 记录交换完成并回收一次性 Grant；Agent 客户端另以目标状态码标记业务成功或失败。当前 HTTP 客户端继承 Go 默认环境代理，内部域名需由 execution proxy 所在环境的代理或直连 DNS 正确解析。
 - 2026-07-15：`make verify-all` 是完整交付门，包含静态检查、全包 race 和全新临时 PostgreSQL；E2E 不预置申请/Grant，贯通 Agent、任务、审批、代理、回收、拒绝重放与 actor 审计。
 - 2026-07-15：业务审计对申请/审批/主动撤销/拒绝 Claim 记录固定 USER/AGENT actor 和无敏感 metadata；唯一管理员可在 Web 查看最新 500 条全局审计。
 

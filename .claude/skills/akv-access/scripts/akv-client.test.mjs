@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AKVClient, CONTROL_ORIGIN, EXECUTION_ORIGIN, validateArguments } from "./akv-client.mjs";
+import {
+  AKVClient,
+  CONTROL_ORIGIN,
+  EXECUTION_ORIGIN,
+  classifyExecutionResult,
+  validateArguments,
+} from "./akv-client.mjs";
 
 function recordingFetch(status = 204, responseBody = "") {
   const calls = [];
@@ -50,4 +56,32 @@ test("arguments are checked against the discovered schema", () => {
   assert.doesNotThrow(() => validateArguments(schema, { project_id: "12747" }));
   assert.throws(() => validateArguments(schema, { project_id: "12747", credential_id: "redacted" }), /undeclared/);
   assert.throws(() => validateArguments(schema, { project_id: 12747 }), /type/);
+});
+
+test("AKV 200 with target 502 is a failed business outcome", () => {
+  const classification = classifyExecutionResult({
+    status: 200,
+    data: {
+      operation_kind: "HTTP",
+      result: { StatusCode: 502, Body: "dXBzdHJlYW0gdW5hdmFpbGFibGU=" },
+    },
+  });
+
+  assert.equal(classification.operationKind, "HTTP");
+  assert.equal(classification.targetStatus, 502);
+  assert.equal(classification.succeeded, false);
+  assert.deepEqual(classification.publicResult, {
+    StatusCode: 502,
+    Body: "dXBzdHJlYW0gdW5hdmFpbGFibGU=",
+  });
+});
+
+test("malformed HTTP result defaults to failed business outcome", () => {
+  const classification = classifyExecutionResult({
+    status: 200,
+    data: { operation_kind: "HTTP", result: {} },
+  });
+
+  assert.equal(classification.targetStatus, null);
+  assert.equal(classification.succeeded, false);
 });

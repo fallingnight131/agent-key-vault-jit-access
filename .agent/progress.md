@@ -47,6 +47,7 @@
 | `AKV-017.a` | `DONE` | 016.a | 本地 Claude Code 从 Git 忽略的根目录文件读取 Agent Token |
 | `AKV-018.a` | `DONE` | 017.a | 现代站内表单弹窗与 Agent Token 幂等撤销 |
 | `AKV-019.a` | `DONE` | 018.a | Claude Code 项目级 AKV Skill 与确定性直连客户端 |
+| `AKV-020.a` | `DONE` | 019.a | GitLab 502 根因诊断与目标业务失败回归测试 |
 
 工作前可把一项拆成 `AKV-NNN.a` 等最小提交；任何时刻只有一个 `IN_PROGRESS`。
 
@@ -56,7 +57,6 @@
 
 ## 最近验证
 
-- 2026-07-15：`AKV-011.a` Vue 6 项测试、浏览器冒烟、`make verify`、全包 race、真实临时 PostgreSQL、`make build`、`git diff --check` 通过。
 - 2026-07-15：`AKV-011.b` Vue 安全扫描与 6 项测试、Vite 构建、`make verify`、五个二进制构建和 `git diff --check` 通过。
 - 2026-07-15：`AKV-012.a` Vue 15 项测试、浏览器注册/退出、`make verify`、race、真实 PostgreSQL 注册并发/回滚、`make build` 和 `git diff --check` 通过。
 - 2026-07-15：`AKV-013.a` Claude Code 2.1.209 隔离配置的 MCP 命令实测、Base64 响应复核、`make verify` 和 `git diff --check` 通过。
@@ -66,10 +66,10 @@
 - 2026-07-16：`AKV-017.a` `.agent-token` Git 忽略/未跟踪检查、Vue 21 项测试与生产构建、`go vet`、全包单测和 `git diff --check` 通过。
 - 2026-07-16：`AKV-018.a` Vue 32 项测试、桌面/移动端浏览器冒烟、`make verify`、真实 PostgreSQL 迁移与代理测试、`git diff --check` 通过。
 - 2026-07-16：`AKV-019.a` Skill 结构校验、Node 客户端 3 项单测、真实本地只读目标发现、`make verify` 和 `git diff --check` 通过。
+- 2026-07-16：`AKV-020.a` HTTP 502 单次执行/回收定向测试、Skill 业务结果 5 项单测、`make verify` 和 `git diff --check` 通过。
 
 ## 最近循环（最多 10 条）
 
-- 2026-07-15｜`AKV-011.a`：将完整控制台迁移为 Vue 3 + Vite，保留单二进制与安全边界并更新本地教程｜下一步无｜计划提交 `feat(web): migrate console to Vue`
 - 2026-07-15｜`AKV-011.b`：将 Vue 工程迁移至根目录并保留 Go 嵌入产物边界｜下一步无｜计划提交 `refactor(web): separate source from embedded assets`
 - 2026-07-15｜`AKV-012.a`：实现立即启用且固定无特权的账号密码自助注册、原子 Session 和可归因审计｜下一步无｜计划提交 `feat(web): add account registration`
 - 2026-07-15｜`AKV-013.a`：重写本地 Claude Code 的 MCP 连接、人工批准和一次性执行样例｜下一步无｜计划提交 `docs(local): explain Claude Code MCP demo`
@@ -79,6 +79,7 @@
 - 2026-07-16｜`AKV-017.a`：本地 Claude Code 改从根目录 `.agent-token` 读取身份 Token，并同步交付提示、教程、架构与安全规则｜下一步无｜计划提交 `docs(agent): read token from root file`
 - 2026-07-16｜`AKV-018.a`：用统一 Vue 弹窗替换浏览器原生交互，区分 Token 状态并修复幂等撤销与错误映射｜下一步无｜计划提交 `fix(web): modernize dialogs and token revocation`
 - 2026-07-16｜`AKV-019.a`：生成项目级 `akv-access` Skill 和固定 Node 客户端，消除临时请求脚本、错误心跳与执行格式猜测｜下一步无｜计划提交 `feat(agent): add deterministic AKV skill`
+- 2026-07-16｜`AKV-020.a`：确认 GitLab 502 来自本机代理/DNS 链路，固化 HTTP 交换成功与目标业务失败的区分及一次性回收语义｜下一步无｜计划提交 `test(proxy): cover target bad gateway semantics`
 
 ## MVP 验收
 

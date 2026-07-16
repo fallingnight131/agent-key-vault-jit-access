@@ -177,6 +177,40 @@ func TestHTTPProxyDoesNotFollowRedirect(t *testing.T) {
 	}
 }
 
+func TestHTTPProxyReturnsTargetBadGatewayWithoutRetryAndReclaims(t *testing.T) {
+	targetCalls := 0
+	guard := &fakeGuard{}
+	vaultClient := &fakeVault{values: map[string]*vault.SensitiveValue{"api_key": vault.NewSensitiveValue([]byte("fixture-api-key"))}}
+	lifecycle := &fakeLifecycle{}
+	proxy := NewHTTPProxy(&fakePlans{validPlan("http://target.example.test")}, guard, vaultClient, lifecycle)
+	proxy.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		targetCalls++
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("upstream unavailable")),
+			Request:    request,
+		}, nil
+	})
+
+	result, err := proxy.Execute(context.Background(), "request", "agent", "task")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.StatusCode != http.StatusBadGateway || string(result.Body) != "upstream unavailable" {
+		t.Fatalf("result status=%d body=%q", result.StatusCode, result.Body)
+	}
+	if guard.calls != 1 || vaultClient.readCalls != 1 || targetCalls != 1 {
+		t.Fatalf("calls guard=%d vault=%d target=%d", guard.calls, vaultClient.readCalls, targetCalls)
+	}
+	if len(lifecycle.finishes) != 1 || lifecycle.finishes[0] != domain.ExecutionSucceeded {
+		t.Fatalf("execution lifecycle=%v", lifecycle.finishes)
+	}
+	if len(lifecycle.reclaims) != 1 || !lifecycle.reclaims[0] {
+		t.Fatalf("reclaim lifecycle=%v", lifecycle.reclaims)
+	}
+}
+
 func TestHTTPProxyCancellationBecomesCancelledAndReclaimed(t *testing.T) {
 	started := make(chan struct{})
 	lifecycle := &fakeLifecycle{}

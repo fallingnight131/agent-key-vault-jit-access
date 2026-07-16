@@ -611,11 +611,11 @@ sequenceDiagram
 
             Proxy->>Target: 执行批准快照中的一次操作
 
-            alt 操作成功
-                Target-->>Proxy: 成功结果
-                Proxy->>Control: EXECUTION_SUCCEEDED
-            else 操作失败或执行超时
-                Target-->>Proxy: 错误或超时
+            alt 收到目标 HTTP 响应（包括 4xx/5xx）
+                Target-->>Proxy: HTTP 状态与脱敏结果
+                Proxy->>Control: EXECUTION_SUCCEEDED（交换完成）
+            else 连接失败或执行超时
+                Target-->>Proxy: 网络错误或超时
                 Proxy->>Control: EXECUTION_FAILED / TIMED_OUT
                 Control->>Control: Grant 保持已消费
             end

@@ -581,6 +581,30 @@ OpenBao 未启动或秘密引擎未启用不会阻止控制服务监听，但会
 
 通常，`401` 表示 Token 无效、过期或缺少 GitLab 要求的认证证明，`403` 表示权限或实例策略拒绝，`404` 表示 Project ID 错误或该 Token 看不到私有项目。修正后不要重发原执行请求，因为原 Grant 已经被占用；请重新建立任务、提交申请并审批。
 
+### GitLab 返回 502 Bad Gateway
+
+如果执行响应是 AKV HTTP `200`、`result.StatusCode=502`、`execution_status=SUCCEEDED` 和 `grant_status=RECLAIMED`，说明 Grant 在有效期内被正常占用，AKV 也完成了唯一一次 HTTP 交换；失败发生在授权之后的目标网络链路。这个 502 可能由中间网关或 GitLab 返回，不能仅凭状态码断定来源。`execution_status=SUCCEEDED` 只表示收到了 HTTP 响应，GitLab 的业务结果仍然是失败。
+
+先在运行 execution proxy 的同一台机器上做不带任何 Token 的探测：
+
+```sh
+curl -sS --max-time 10 -o /dev/null \
+  -w 'default code=%{http_code} remote=%{remote_ip}\n' \
+  http://git.koal.com/api/v4/projects/12747
+
+curl -sS --noproxy '*' --max-time 10 -o /dev/null \
+  -w 'direct code=%{http_code} remote=%{remote_ip}\n' \
+  http://git.koal.com/api/v4/projects/12747
+```
+
+不要在诊断命令中加入 GitLab Token。如果默认路径连接到 `127.0.0.1` 并返回 `502`，而直连提示无法解析域名，说明 execution proxy 继承的 `HTTP_PROXY`/`HTTPS_PROXY` 把请求交给了本机代理，但该代理也无法解析或连接内部 GitLab。按实际网络方式处理：
+
+1. 需要直连内部 GitLab：先连接公司网络或 VPN，确保系统 DNS 能解析 `git.koal.com`，再把该域名加入 execution proxy 进程的 `NO_PROXY` 并重启 execution proxy；
+2. 必须经过代理：修复代理对 `git.koal.com` 的 DNS 和路由，不要简单绕过；
+3. 把 GitLab Base URL 改成它最终可达的准确 HTTPS Origin。明文 HTTP 无论直连还是经代理都可能暴露 GitLab Token，不适合正式环境。
+
+修好网络后必须创建新任务、重新申请并审批；502 对应的旧 Grant 已经消费并回收，不能重试。
+
 ### 等待审批时任务变成 AGENT_LOST
 
 Claude Code 建立任务后必须每 15 秒发送一次任务心跳，等待人工审批时也不能停。查询申请状态不能代替心跳。连续大约 45 秒没有心跳时，Worker 会结束失联任务并撤销未完成的授权；此时应建立新任务、重新申请并重新等待人工审批。

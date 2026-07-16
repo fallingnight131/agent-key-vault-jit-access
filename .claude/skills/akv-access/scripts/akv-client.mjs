@@ -298,6 +298,20 @@ async function statusFlow(client, options) {
   console.log(JSON.stringify({ phase: "authorization_status", task_id: taskId, ...status }));
 }
 
+export function classifyExecutionResult(execution) {
+  const operationKind = execution.data?.operation_kind || null;
+  const targetStatus = operationKind === "HTTP" ? execution.data?.result?.StatusCode ?? null : null;
+  const succeeded = execution.status === 200 && (
+    operationKind === "HTTP"
+      ? Number.isInteger(targetStatus) && targetStatus >= 200 && targetStatus < 300
+      : true
+  );
+  const publicResult = operationKind === "HTTP"
+    ? { StatusCode: targetStatus, Body: execution.data?.result?.Body || null }
+    : execution.data?.result || null;
+  return { operationKind, targetStatus, succeeded, publicResult };
+}
+
 async function executeFlow(client, options) {
   const taskId = required(options, "task-id");
   const requestId = required(options, "request-id");
@@ -323,11 +337,7 @@ async function executeFlow(client, options) {
 
   const afterResult = await client.call(CONTROL_ORIGIN, `/v1/agent/authorizations/${requestId}`);
   const after = afterResult.status === 200 ? afterResult.data : null;
-  const targetStatus = execution.data?.operation_kind === "HTTP" ? execution.data?.result?.StatusCode : null;
-  const succeeded = execution.status === 200 && (targetStatus === null || (targetStatus >= 200 && targetStatus < 300));
-  const publicResult = execution.data?.operation_kind === "HTTP"
-    ? { StatusCode: targetStatus, Body: execution.data?.result?.Body || null }
-    : execution.data?.result || null;
+  const { operationKind, targetStatus, succeeded, publicResult } = classifyExecutionResult(execution);
   try {
     await endTask(client, taskId, succeeded ? "COMPLETED" : "FAILED");
   } catch (error) {
@@ -335,8 +345,9 @@ async function executeFlow(client, options) {
   }
   console.log(JSON.stringify({
     phase: "executed",
+    business_outcome: succeeded ? "SUCCEEDED" : "FAILED",
     execution_http_status: execution.status,
-    operation_kind: execution.data?.operation_kind || null,
+    operation_kind: operationKind,
     target_status_code: targetStatus,
     result: publicResult,
     error: execution.data?.error || null,
