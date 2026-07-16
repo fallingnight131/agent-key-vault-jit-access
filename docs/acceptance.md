@@ -19,6 +19,8 @@
 
 ## 额外安全门
 
+- 人类与 Agent 联合行为链：`TestOrdinaryUserAndAgentCompleteApprovedOperationOnce` 使用真实临时 PostgreSQL，贯通 Web 注册/Session/CSRF、Agent 注册与 Bearer API、人工审批、统一执行入口、跨用户/跨 Agent/跨任务拒绝、单次执行、脱敏、重放拒绝和关联审计；拒绝路径 Vault/目标调用均为零。
+- 任务终态禁止审批：`TestEndedTaskCannotBeApproved` 验证任务结束后的人类批准原子失败，不创建 Approval 或 Grant，也不访问 Vault/目标。
 - 申请快照不可变与服务端默认凭证：`TestSubmitFreezesServerBoundSnapshot`、`TestCreateAndResolveServerDefaultCredential`、`TestPostgreSQLAuthorizationConcurrency` 的真实触发器拒绝。
 - 安全操作目录：`TestAdministratorPublishesReusableOperationAndBindsTarget`、`TestPublishingCreatesNewImmutableVersionWithoutMovingBindings`、`TestOperationCatalogRejectsNonAdminAndUnsafeDefinitions`、`TestWebAdministratorPublishesAndBindsSafeOperationVersion`；操作集可复用，版本不可变，只有管理员可管理并必须显式绑定精确版本。
 - Schema 与私有模板边界：`TestCompileHTTP`、`TestCompilePostgreSQL`、`TestCompileSign`、`TestInvalidSchemas`、`TestInvalidArguments`、`TestRejectsUnsafeHTTPTemplates`、`TestRejectsUnsafePostgreSQLTemplates`、`TestRejectsBindingAmplification`；原始操作申请由 `TestAuthorizationRequestRejectsLegacyRawOperation` 拒绝。

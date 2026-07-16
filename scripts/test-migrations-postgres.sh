@@ -6,6 +6,7 @@ postgres_socket=$(mktemp -d /tmp/akv-postgres-socket.XXXXXX)
 
 cleanup() {
 	pg_ctl -D "$postgres_data" -m immediate stop >/dev/null 2>&1 || true
+	rm -rf "$postgres_data" "$postgres_socket"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -78,3 +79,8 @@ AKV_TEST_POSTGRES_DSN="host=$postgres_socket user=akvtest dbname=akvtest sslmode
 	AKV_TEST_POSTGRES_SOCKET="$postgres_socket" \
 	GOCACHE="${GOCACHE:-/tmp/akv-go-cache}" \
 	go test -race ./internal/proxy -run 'Test(PostgreSQLEndToEndAuthorizationFlow|PGXFactoryConnectsToTemporaryPostgreSQL)' -count=1
+
+AKV_TEST_POSTGRES_DSN="host=$postgres_socket user=akvtest dbname=akvtest sslmode=disable" \
+	AKV_TEST_POSTGRES_SOCKET="$postgres_socket" \
+	GOCACHE="${GOCACHE:-/tmp/akv-go-cache}" \
+	go test -race ./internal/behavior -count=1

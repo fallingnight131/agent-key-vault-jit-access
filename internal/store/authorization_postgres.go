@@ -70,6 +70,18 @@ func (repository *PostgreSQLAuthorizationRepository) DecidePending(ctx context.C
 	nextStatus := domain.RequestRejected
 	if command.Approval.Decision == authorization.DecisionApproved {
 		nextStatus = domain.RequestApproved
+		var activeTask int
+		err := transaction.QueryRowContext(ctx, `
+SELECT 1
+FROM tasks
+WHERE id=$1 AND agent_id=$2 AND status='ACTIVE'
+FOR SHARE`, command.Context.Request.TaskID, command.Context.Request.AgentID).Scan(&activeTask)
+		if errors.Is(err, sql.ErrNoRows) {
+			return authorization.ErrDecisionConflict
+		}
+		if err != nil {
+			return fmt.Errorf("lock active approval task: %w", err)
+		}
 	}
 	result, err := transaction.ExecContext(ctx, `
 UPDATE authorization_requests
@@ -82,10 +94,13 @@ WHERE id = $2
 	      SELECT 1
 	      FROM targets target
 	      JOIN credentials credential ON credential.id=authorization_requests.credential_id
+	      JOIN tasks request_task ON request_task.id=authorization_requests.task_id
 	      WHERE target.id=authorization_requests.target_id
 	        AND target.status='ACTIVE'
 	        AND credential.status='ACTIVE'
 	        AND target.default_credential_id=credential.id
+	        AND request_task.agent_id=authorization_requests.agent_id
+	        AND request_task.status='ACTIVE'
 	        AND authorization_requests.request_format=2
 	        AND target.config_version=authorization_requests.target_config_version
 	            AND EXISTS (

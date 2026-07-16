@@ -1,4 +1,4 @@
-.PHONY: build fmt-check race test test-migrations-postgres vet verify verify-all web-build web-deps web-test
+.PHONY: agent-client-test build fmt-check race test test-migrations-postgres vet verify verify-all web-build web-deps web-test
 
 GOCACHE ?= /tmp/akv-go-cache
 export GOCACHE
@@ -16,10 +16,13 @@ web-build: web-deps
 web-test: web-deps
 	npm --prefix $(WEB_DIR) test
 
+agent-client-test:
+	node --test .claude/skills/akv-access/scripts/*.test.mjs
+
 fmt-check:
 	@test -z "$$(gofmt -l $$(find cmd internal -path '*/node_modules' -prune -o -name '*.go' -type f -print))"
 
-test: web-build web-test
+test: web-build web-test agent-client-test
 	go test ./...
 
 race: web-build web-test

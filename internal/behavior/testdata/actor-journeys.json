@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "journeys": [
+    {
+      "id": "ordinary-user-approved-once",
+      "description": "An ordinary user and an agent complete one human-approved protected operation.",
+      "actors": [
+        "ordinary_user",
+        "unrelated_user",
+        "primary_agent",
+        "unrelated_agent"
+      ],
+      "checkpoints": [
+        "register_user_and_agent",
+        "discover_operation",
+        "begin_and_heartbeat_task",
+        "request_human_approval",
+        "deny_unapproved_execution",
+        "approve_with_cookie_and_csrf",
+        "deny_unrelated_contexts",
+        "execute_once_and_redact",
+        "deny_replay",
+        "read_linked_audit"
+      ],
+      "expected_manifest": {
+        "users": 3,
+        "agents": 2,
+        "tasks": 2,
+        "authorization_requests": 1,
+        "approvals": 1,
+        "operation_grants": 1,
+        "executions": 1,
+        "reclaims": 1
+      }
+    },
+    {
+      "id": "ended-task-cannot-be-approved",
+      "description": "A human decision cannot approve an authorization after its task has ended.",
+      "actors": [
+        "ordinary_user",
+        "primary_agent"
+      ],
+      "checkpoints": [
+        "register_user_and_agent",
+        "begin_and_heartbeat_task",
+        "request_human_approval",
+        "end_task",
+        "reject_late_approval",
+        "create_no_grant"
+      ],
+      "expected_manifest": {
+        "users": 2,
+        "agents": 1,
+        "tasks": 1,
+        "authorization_requests": 1,
+        "approvals": 0,
+        "operation_grants": 0,
+        "executions": 0,
+        "reclaims": 0
+      }
+    }
+  ]
+}
