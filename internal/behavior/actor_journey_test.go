@@ -216,6 +216,9 @@ func TestOrdinaryUserAndAgentCompleteApprovedOperationOnce(t *testing.T) {
 		)
 	}
 	assertNoRuntimeValues(t, executionBody, harness.protectedValue, primaryAgent.Token, unrelatedAgent.Token)
+	if duration := harness.requestToResultDuration(t, requestID); duration < 0 {
+		t.Fatalf("request-to-result duration=%s", duration)
+	}
 
 	status, _ = harness.agentCall(t, harness.execution.URL, http.MethodPost, "/v1/execute", primaryAgent.Token, map[string]any{
 		"request_id": requestID, "task_id": primaryTaskID,

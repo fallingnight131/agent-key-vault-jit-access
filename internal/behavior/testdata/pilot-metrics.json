@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "dataset_kind": "SYNTHETIC_TEST_SPECIFICATION",
+  "real_pilot_data_status": "AWAITING_PILOT",
+  "improvement_target_percent": null,
+  "metrics": [
+    {
+      "id": "request_to_result_duration",
+      "label": "申请到结果用时",
+      "unit": "milliseconds",
+      "definition": "从授权申请创建到该申请的执行结果完成。",
+      "collection_status": "DERIVABLE_NOW",
+      "current_source_fields": [
+        "authorization_requests.created_at",
+        "executions.completed_at"
+      ],
+      "required_pilot_events": [],
+      "pilot_value": null
+    },
+    {
+      "id": "manual_handoff_count",
+      "label": "人工转交次数",
+      "unit": "count",
+      "definition": "一次操作中被明确记录的人工责任转交事件数量。",
+      "collection_status": "AWAITING_PILOT_CAPTURE",
+      "current_source_fields": [],
+      "required_pilot_events": [
+        "manual_handoff"
+      ],
+      "pilot_value": null
+    },
+    {
+      "id": "approval_followup_count",
+      "label": "审批补问次数",
+      "unit": "count",
+      "definition": "审批人在作出决定前发起并被明确记录的补问事件数量。",
+      "collection_status": "AWAITING_PILOT_CAPTURE",
+      "current_source_fields": [],
+      "required_pilot_events": [
+        "approval_followup"
+      ],
+      "pilot_value": null
+    },
+    {
+      "id": "operation_review_duration",
+      "label": "复盘一次操作所需时间",
+      "unit": "milliseconds",
+      "definition": "同一复盘会话从明确开始到明确完成的持续时间。",
+      "collection_status": "AWAITING_PILOT_CAPTURE",
+      "current_source_fields": [],
+      "required_pilot_events": [
+        "review_started",
+        "review_completed"
+      ],
+      "pilot_value": null
+    }
+  ],
+  "synthetic_cases": [
+    {
+      "id": "explicit-human-agent-observation",
+      "synthetic": true,
+      "events": [
+        {
+          "type": "authorization_requested",
+          "offset_ms": 0
+        },
+        {
+          "type": "manual_handoff",
+          "offset_ms": 30000
+        },
+        {
+          "type": "approval_followup",
+          "offset_ms": 60000
+        },
+        {
+          "type": "manual_handoff",
+          "offset_ms": 120000
+        },
+        {
+          "type": "result_completed",
+          "offset_ms": 180000
+        },
+        {
+          "type": "review_started",
+          "offset_ms": 240000
+        },
+        {
+          "type": "review_completed",
+          "offset_ms": 330000
+        }
+      ],
+      "expected": {
+        "request_to_result_duration_ms": 180000,
+        "manual_handoff_count": 2,
+        "approval_followup_count": 1,
+        "operation_review_duration_ms": 90000
+      }
+    }
+  ]
+}

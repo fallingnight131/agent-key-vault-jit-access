@@ -487,6 +487,20 @@ SELECT
 	return manifest
 }
 
+func (harness *behaviorHarness) requestToResultDuration(t *testing.T, requestID string) time.Duration {
+	t.Helper()
+	var requestedAt, resultCompletedAt time.Time
+	if err := harness.database.QueryRowContext(context.Background(), `
+SELECT request_record.created_at, execution_record.completed_at
+FROM authorization_requests request_record
+JOIN operation_grants grant_record ON grant_record.request_id = request_record.id
+JOIN executions execution_record ON execution_record.grant_id = grant_record.id
+WHERE request_record.id = $1`, requestID).Scan(&requestedAt, &resultCompletedAt); err != nil {
+		t.Fatal("read request-to-result timestamp boundaries")
+	}
+	return resultCompletedAt.Sub(requestedAt)
+}
+
 func assertNoRuntimeValues(t *testing.T, body []byte, values ...string) {
 	t.Helper()
 	for _, value := range values {

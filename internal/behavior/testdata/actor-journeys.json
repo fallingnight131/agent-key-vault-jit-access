@@ -19,6 +19,7 @@
         "approve_with_cookie_and_csrf",
         "deny_unrelated_contexts",
         "execute_once_and_redact",
+        "derive_request_to_result_duration",
         "deny_replay",
         "read_linked_audit"
       ],
