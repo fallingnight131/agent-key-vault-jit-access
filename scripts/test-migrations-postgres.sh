@@ -50,15 +50,37 @@ legacy_approved_status=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest
 	-c "SELECT status FROM operation_grants WHERE id='00000000-0000-4000-8000-000000000109'")
 legacy_executing_cancelled=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest \
 	-c "SELECT revoked_at IS NOT NULL FROM operation_grants WHERE id='00000000-0000-4000-8000-000000000110'")
+legacy_observation_captures=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest \
+	-c "SELECT count(*) FROM request_observation_capture WHERE request_id IN ('00000000-0000-4000-8000-000000000106','00000000-0000-4000-8000-000000000107','00000000-0000-4000-8000-000000000108')")
 
 test "$legacy_pending_status" = "APPROVAL_EXPIRED"
 test "$legacy_approved_status" = "REVOKED"
 test "$legacy_executing_cancelled" = "t"
+test "$legacy_observation_captures" -eq 0
 
 if psql -X -v ON_ERROR_STOP=1 -h "$postgres_socket" -U akvtest -d akvtest >/dev/null 2>&1 \
 	-c "INSERT INTO authorization_requests (id,agent_id,task_id,target_id,credential_id,operation,parameters,operation_hash,reason,status,created_at,approval_deadline) VALUES ('00000000-0000-4000-8000-000000000111','00000000-0000-4000-8000-000000000102','00000000-0000-7000-8000-000000000103','00000000-0000-4000-8000-000000000104','00000000-0000-4000-8000-000000000105','HTTP','{}',decode(repeat('04',32),'hex'),'legacy insert','PENDING_APPROVAL',now(),now()+interval '30 minutes')"; then
 	exit 1
 fi
+
+psql -X -v ON_ERROR_STOP=1 -h "$postgres_socket" -U akvtest -d akvtest >/dev/null <<'SQL'
+INSERT INTO authorization_requests (
+    id,agent_id,task_id,target_id,credential_id,operation,parameters,operation_hash,
+    reason,status,created_at,approval_deadline,request_format
+) VALUES (
+    '00000000-0000-4000-8000-000000000112',
+    '00000000-0000-4000-8000-000000000102',
+    '00000000-0000-7000-8000-000000000103',
+    '00000000-0000-4000-8000-000000000104',
+    '00000000-0000-4000-8000-000000000105',
+    'HTTP','{}',decode(repeat('05',32),'hex'),'post-migration enrollment',
+    'PENDING_APPROVAL',now(),now()+interval '30 minutes',1
+);
+SQL
+
+new_observation_capture=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest \
+	-c "SELECT count(*) FROM request_observation_capture WHERE request_id='00000000-0000-4000-8000-000000000112'")
+test "$new_observation_capture" -eq 1
 
 psql -X -v ON_ERROR_STOP=1 -h "$postgres_socket" -U akvtest -d akvtest \
 	-c "TRUNCATE targets,users CASCADE" >/dev/null 2>&1
@@ -67,9 +89,12 @@ table_count=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest \
 	-c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
 trigger_count=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest \
 	-c "SELECT count(*) FROM pg_trigger WHERE tgname = 'authorization_requests_immutable_snapshot'")
+observation_trigger_count=$(psql -X -At -h "$postgres_socket" -U akvtest -d akvtest \
+	-c "SELECT count(*) FROM pg_trigger WHERE tgname IN ('authorization_requests_observation_enrollment','request_observation_events_validate','request_observation_capture_append_only','request_observation_events_append_only')")
 
-test "$table_count" -eq 18
+test "$table_count" -eq 20
 test "$trigger_count" -eq 1
+test "$observation_trigger_count" -eq 4
 
 AKV_TEST_POSTGRES_DSN="host=$postgres_socket user=akvtest dbname=akvtest sslmode=disable" \
 	GOCACHE="${GOCACHE:-/tmp/akv-go-cache}" \

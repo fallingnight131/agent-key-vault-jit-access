@@ -10,6 +10,9 @@ const publicErrorMessages = {
   USERNAME_UNAVAILABLE: '用户名已被使用，请换一个',
   FORBIDDEN: '没有权限执行此操作',
   CSRF_REJECTED: '页面校验已过期，请刷新后重试',
+  INVALID_OBSERVATION: '观测记录格式无效，请刷新后重试',
+  OBSERVATION_REJECTED: '当前状态不能记录这项观测，请刷新后重试',
+  NOT_FOUND: '申请不存在或你无权查看',
   INTERNAL: '服务暂时不可用，请稍后重试',
 }
 

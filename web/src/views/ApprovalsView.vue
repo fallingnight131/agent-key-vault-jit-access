@@ -6,6 +6,11 @@ import ModalDialog from '../components/ModalDialog.vue'
 const props = defineProps({ api: { type: Function, required: true } })
 const records = ref([])
 const auditEvents = ref(null)
+const auditRecord = ref(null)
+const pilotMetrics = ref(null)
+const pilotError = ref('')
+const pilotMetricsStale = ref(false)
+const pendingObservationKeys = new Map()
 const loading = ref(true)
 const error = ref('')
 const busy = ref(false)
@@ -30,6 +35,20 @@ const dialogConfig = computed(() => {
       danger: true,
     }
   }
+  if (dialogKind.value === 'manual-handoff') {
+    return {
+      title: '记录人工转交',
+      description: '确认后会追加一次人工转交观测，不能修改或删除。',
+      submitLabel: '确认记录转交',
+    }
+  }
+  if (dialogKind.value === 'approval-followup') {
+    return {
+      title: '记录审批补问',
+      description: '确认后会追加一次审批补问观测，不能修改或删除。',
+      submitLabel: '确认记录补问',
+    }
+  }
   return {
     title: '撤销一次性授权',
     description: '尚未执行的 Grant 会被阻止；执行中的操作只会进行尽力取消。',
@@ -42,6 +61,10 @@ async function load() {
   loading.value = true
   error.value = ''
   auditEvents.value = null
+  auditRecord.value = null
+  pilotMetrics.value = null
+  pilotError.value = ''
+  pilotMetricsStale.value = false
   try {
     records.value = await props.api('/v1/web/authorizations')
   } catch (failure) {
@@ -64,9 +87,90 @@ function openRevoke(record) {
   dialogKind.value = 'revoke'
 }
 
+function openObservation(kind) {
+  if (!auditRecord.value) return
+  dialogRecord.value = auditRecord.value
+  dialogError.value = ''
+  dialogKind.value = kind
+}
+
+function formatMetricDuration(value) {
+  return value === null || value === undefined ? '待采集' : `${value} 毫秒`
+}
+
+function formatMetricCount(value) {
+  return value === null || value === undefined ? '待采集' : `${value} 次`
+}
+
+function formatImprovementTarget(value) {
+  return value === null || value === undefined ? '未预设' : `${value}%`
+}
+
+async function loadPilotMetrics(requestID) {
+  pilotMetrics.value = await props.api(`/v1/web/authorizations/${requestID}/pilot-metrics`)
+}
+
+async function postPilotObservation(path, showInDialog = false) {
+  const record = auditRecord.value
+  if (!record) return false
+
+  let idempotencyKey = pendingObservationKeys.get(path)
+  if (!idempotencyKey) {
+    idempotencyKey = globalThis.crypto.randomUUID()
+    pendingObservationKeys.set(path, idempotencyKey)
+  }
+
+  busy.value = true
+  if (showInDialog) dialogError.value = ''
+  else pilotError.value = ''
+  try {
+    await props.api(path, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({}),
+    })
+    pendingObservationKeys.delete(path)
+    try {
+      await loadPilotMetrics(record.request_id)
+    } catch {
+      pilotMetricsStale.value = true
+      pilotError.value = '观测已记录，但汇总刷新失败。请返回申请后重新打开审计。'
+    }
+    return true
+  } catch (failure) {
+    if (showInDialog) dialogError.value = failure.message
+    else pilotError.value = failure.message
+    return false
+  } finally {
+    busy.value = false
+  }
+}
+
+async function recordReview(kind) {
+  const record = auditRecord.value
+  if (!record) return
+  if (kind === 'start') {
+    await postPilotObservation(`/v1/web/authorizations/${record.request_id}/reviews`)
+    return
+  }
+  const reviewID = pilotMetrics.value?.review_session_id
+  if (!reviewID) return
+  await postPilotObservation(`/v1/web/authorizations/${record.request_id}/reviews/${reviewID}/complete`)
+}
+
 async function submitDialog() {
   const record = dialogRecord.value
   if (!record) return
+
+  if (dialogKind.value === 'manual-handoff' || dialogKind.value === 'approval-followup') {
+    const event = dialogKind.value
+    const recorded = await postPilotObservation(
+      `/v1/web/authorizations/${record.request_id}/observations/${event}`,
+      true,
+    )
+    if (recorded) closeDialog(true)
+    return
+  }
 
   let path
   let body
@@ -107,11 +211,20 @@ function closeDialog(force = false) {
   grantMinutes.value = 10
 }
 
-async function showAudit(requestID) {
+async function showAudit(record) {
   loading.value = true
   error.value = ''
+  pilotError.value = ''
+  pilotMetricsStale.value = false
+  auditRecord.value = record
   try {
-    auditEvents.value = await props.api(`/v1/web/authorizations/${requestID}/audit`)
+    auditEvents.value = await props.api(`/v1/web/authorizations/${record.request_id}/audit`)
+    try {
+      await loadPilotMetrics(record.request_id)
+    } catch (failure) {
+      pilotMetrics.value = null
+      pilotError.value = `审计已加载，但试点指标暂不可用：${failure.message}`
+    }
   } catch (failure) {
     error.value = failure.message
   } finally {
@@ -127,6 +240,55 @@ onMounted(load)
   <p v-else-if="error" class="error" role="alert">{{ error }}</p>
   <template v-else-if="auditEvents">
     <button type="button" class="secondary" @click="load">返回申请</button>
+    <p v-if="pilotError && !pilotMetrics" class="error" role="alert">{{ pilotError }}</p>
+    <article v-if="pilotMetrics" class="card pilot-metrics" aria-labelledby="pilot-metrics-title">
+      <span class="badge">{{ pilotMetrics.capture_status || '待采集' }}</span>
+      <h2 id="pilot-metrics-title">试点观测指标</h2>
+      <p class="muted">仅记录人类用户明确观测的事件；未采集值不推断为 0。</p>
+      <dl class="meta">
+        <dt>申请到结果用时</dt>
+        <dd data-testid="request-to-result-duration">{{ formatMetricDuration(pilotMetrics.request_to_result_duration_ms) }}</dd>
+        <dt>人工转交次数</dt>
+        <dd data-testid="manual-handoff-count">{{ formatMetricCount(pilotMetrics.manual_handoff_count) }}</dd>
+        <dt>审批补问次数</dt>
+        <dd data-testid="approval-followup-count">{{ formatMetricCount(pilotMetrics.approval_followup_count) }}</dd>
+        <dt>复盘一次操作所需时间</dt>
+        <dd data-testid="operation-review-duration">{{ formatMetricDuration(pilotMetrics.operation_review_duration_ms) }}</dd>
+        <dt>复盘状态</dt><dd>{{ pilotMetrics.review_status || '待采集' }}</dd>
+        <dt>改善幅度</dt>
+        <dd data-testid="improvement-target">{{ formatImprovementTarget(pilotMetrics.improvement_target_percent) }}</dd>
+      </dl>
+      <p v-if="pilotError" class="error" role="alert">{{ pilotError }}</p>
+      <div class="actions">
+        <button
+          v-if="pilotMetrics.can_record_manual_handoff"
+          type="button"
+          class="secondary"
+          :disabled="busy || pilotMetricsStale"
+          @click="openObservation('manual-handoff')"
+        >记录人工转交</button>
+        <button
+          v-if="pilotMetrics.can_record_approval_followup"
+          type="button"
+          class="secondary"
+          :disabled="busy || pilotMetricsStale"
+          @click="openObservation('approval-followup')"
+        >记录审批补问</button>
+        <button
+          v-if="pilotMetrics.can_start_review"
+          type="button"
+          class="secondary"
+          :disabled="busy || pilotMetricsStale"
+          @click="recordReview('start')"
+        >开始复盘计时</button>
+        <button
+          v-if="pilotMetrics.can_complete_review && pilotMetrics.review_session_id"
+          type="button"
+          :disabled="busy || pilotMetricsStale"
+          @click="recordReview('complete')"
+        >完成复盘计时</button>
+      </div>
+    </article>
     <div v-if="auditEvents.length" class="grid audit-grid">
       <article v-for="event in auditEvents" :key="event.id" class="card">
         <h2>{{ event.event_type }}</h2>
@@ -164,7 +326,7 @@ onMounted(load)
           <button type="button" :disabled="busy" @click="openDecision(record, 'APPROVED')">批准</button>
           <button type="button" class="danger" :disabled="busy" @click="openDecision(record, 'REJECTED')">拒绝</button>
         </template>
-        <button type="button" class="secondary" :disabled="busy" @click="showAudit(record.request_id)">审计</button>
+        <button type="button" class="secondary" :disabled="busy" @click="showAudit(record)">审计</button>
         <button v-if="record.status === 'APPROVED'" type="button" class="danger" :disabled="busy" @click="openRevoke(record)">撤销</button>
       </div>
     </article>
@@ -176,7 +338,7 @@ onMounted(load)
     :description="dialogConfig.description"
     :submit-label="dialogConfig.submitLabel"
     :danger="dialogConfig.danger"
-    :close-on-backdrop="dialogKind !== 'approve'"
+    :close-on-backdrop="!['approve', 'manual-handoff', 'approval-followup'].includes(dialogKind)"
     :busy="busy"
     :error="dialogError"
     @close="closeDialog"
@@ -189,6 +351,9 @@ onMounted(load)
       </label>
       <p class="field-help span-2">允许 1–10 分钟。Grant 一旦执行或过期都不能重复使用。</p>
     </div>
+    <p v-else-if="dialogKind === 'manual-handoff' || dialogKind === 'approval-followup'" class="modal-warning">
+      {{ dialogRecord?.agent_name }} → {{ dialogRecord?.target_name }}，本次观测会使用服务端时间追加记录。
+    </p>
     <p v-else class="modal-warning">
       {{ dialogRecord?.agent_name }} → {{ dialogRecord?.target_name }}，操作完成后无法通过这个弹窗恢复。
     </p>

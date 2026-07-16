@@ -32,6 +32,7 @@ type WebRuntime struct {
 	ApprovalReader WebApprovalReader
 	Approvals      WebApprovalDecider
 	Revocations    WebRevoker
+	Observations   WebObservationManager
 	config         Config
 }
 
@@ -72,6 +73,13 @@ func (runtime *WebRuntime) Register(mux *http.ServeMux, config Config) {
 		mux.HandleFunc("GET /v1/web/audit", runtime.listAuditEvents)
 		mux.HandleFunc("GET /v1/web/incidents", runtime.listIncidents)
 		mux.HandleFunc("POST /v1/web/incidents/{incident_id}/resolve", runtime.resolveIncident)
+	}
+	if runtime.Observations != nil {
+		mux.HandleFunc("GET /v1/web/authorizations/{request_id}/pilot-metrics", runtime.authorizationPilotMetrics)
+		mux.HandleFunc("POST /v1/web/authorizations/{request_id}/observations/manual-handoff", runtime.recordManualHandoff)
+		mux.HandleFunc("POST /v1/web/authorizations/{request_id}/observations/approval-followup", runtime.recordApprovalFollowup)
+		mux.HandleFunc("POST /v1/web/authorizations/{request_id}/reviews", runtime.startOperationReview)
+		mux.HandleFunc("POST /v1/web/authorizations/{request_id}/reviews/{review_id}/complete", runtime.completeOperationReview)
 	}
 }
 

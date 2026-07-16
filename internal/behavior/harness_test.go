@@ -28,6 +28,7 @@ import (
 	"github.com/fallingnight/akv/internal/control"
 	"github.com/fallingnight/akv/internal/identity"
 	"github.com/fallingnight/akv/internal/lifecycle"
+	"github.com/fallingnight/akv/internal/observation"
 	"github.com/fallingnight/akv/internal/proxy"
 	"github.com/fallingnight/akv/internal/store"
 	"github.com/fallingnight/akv/internal/task"
@@ -195,6 +196,9 @@ func newBehaviorHarness(t *testing.T) *behaviorHarness {
 		ApprovalReader: store.NewPostgreSQLWebRepository(database),
 		Approvals:      authorization.NewApprovalService(authorizationRepository),
 		Revocations:    lifecycleService,
+		Observations: observation.NewService(
+			store.NewPostgreSQLObservationRepository(database),
+		),
 	}
 	logger := slog.New(slog.NewJSONHandler(harness.logs, nil))
 	controlServer := control.NewServer(control.Config{
@@ -257,19 +261,23 @@ func openMarkedBehaviorDatabase(t *testing.T) *sql.DB {
 	if databaseName != "akvtest" || databaseUser != "akvtest" || filepath.Clean(socketDirectories) != cleanSocket {
 		t.Fatal("refusing PostgreSQL without the exact behavior test identity")
 	}
-	var usersTable, requestsTable, operationsTable sql.NullString
+	var usersTable, requestsTable, operationsTable, observationCaptureTable, observationEventsTable sql.NullString
 	if err := database.QueryRowContext(context.Background(), `
 SELECT
     to_regclass('public.users')::text,
     to_regclass('public.authorization_requests')::text,
-    to_regclass('public.operation_versions')::text`).Scan(
-		&usersTable, &requestsTable, &operationsTable,
+    to_regclass('public.operation_versions')::text,
+    to_regclass('public.request_observation_capture')::text,
+    to_regclass('public.request_observation_events')::text`).Scan(
+		&usersTable, &requestsTable, &operationsTable, &observationCaptureTable, &observationEventsTable,
 	); err != nil {
 		t.Fatal("inspect marked behavior PostgreSQL schema")
 	}
 	if !usersTable.Valid || usersTable.String != "users" ||
 		!requestsTable.Valid || requestsTable.String != "authorization_requests" ||
-		!operationsTable.Valid || operationsTable.String != "operation_versions" {
+		!operationsTable.Valid || operationsTable.String != "operation_versions" ||
+		!observationCaptureTable.Valid || observationCaptureTable.String != "request_observation_capture" ||
+		!observationEventsTable.Valid || observationEventsTable.String != "request_observation_events" {
 		t.Fatal("marked behavior PostgreSQL schema is incomplete")
 	}
 	return database
@@ -331,6 +339,17 @@ func (harness *behaviorHarness) registerWebActor(t *testing.T, role string) *web
 
 func (actor *webActor) call(t *testing.T, method, path string, payload any, mutation bool) (int, []byte) {
 	t.Helper()
+	return actor.callWithHeaders(t, method, path, payload, mutation, nil)
+}
+
+func (actor *webActor) callWithHeaders(
+	t *testing.T,
+	method, path string,
+	payload any,
+	mutation bool,
+	headers http.Header,
+) (int, []byte) {
+	t.Helper()
 	body := marshalBehaviorJSON(t, payload)
 	request, err := http.NewRequestWithContext(context.Background(), method, actor.baseURL+path, bytes.NewReader(body))
 	if err != nil {
@@ -339,6 +358,11 @@ func (actor *webActor) call(t *testing.T, method, path string, payload any, muta
 	request.Header.Set("Origin", actor.origin)
 	if payload != nil {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	for name, values := range headers {
+		for _, value := range values {
+			request.Header.Add(name, value)
+		}
 	}
 	if mutation {
 		csrf := actor.csrf
@@ -454,6 +478,8 @@ type dataManifest struct {
 	Agents                int `json:"agents"`
 	Tasks                 int `json:"tasks"`
 	AuthorizationRequests int `json:"authorization_requests"`
+	ObservationCaptures   int `json:"observation_captures"`
+	ObservationEvents     int `json:"observation_events"`
 	Approvals             int `json:"approvals"`
 	OperationGrants       int `json:"operation_grants"`
 	Executions            int `json:"executions"`
@@ -469,6 +495,8 @@ SELECT
     (SELECT count(*) FROM agents),
     (SELECT count(*) FROM tasks),
     (SELECT count(*) FROM authorization_requests),
+    (SELECT count(*) FROM request_observation_capture),
+    (SELECT count(*) FROM request_observation_events),
     (SELECT count(*) FROM approvals),
     (SELECT count(*) FROM operation_grants),
     (SELECT count(*) FROM executions),
@@ -477,6 +505,8 @@ SELECT
 		&manifest.Agents,
 		&manifest.Tasks,
 		&manifest.AuthorizationRequests,
+		&manifest.ObservationCaptures,
+		&manifest.ObservationEvents,
 		&manifest.Approvals,
 		&manifest.OperationGrants,
 		&manifest.Executions,

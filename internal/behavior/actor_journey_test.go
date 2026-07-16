@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+
+	"github.com/fallingnight/akv/internal/observation"
 )
 
 //go:embed testdata/actor-journeys.json
@@ -97,6 +99,103 @@ func TestOrdinaryUserAndAgentCompleteApprovedOperationOnce(t *testing.T) {
 		t, harness, primaryAgent.Token, primaryTaskID,
 		operationCatalog.Operations[0].OperationID, operationCatalog.Operations[0].Version,
 	)
+	observationBasePath := "/v1/web/authorizations/" + requestID
+	observationKeys := []string{
+		"00000000-0000-4000-8000-000000000001",
+		"00000000-0000-4000-8000-000000000002",
+		"00000000-0000-4000-8000-000000000003",
+		"00000000-0000-4000-8000-000000000004",
+		"00000000-0000-4000-8000-000000000005",
+		"00000000-0000-4000-8000-000000000006",
+		"00000000-0000-4000-8000-000000000007",
+		"00000000-0000-4000-8000-000000000008",
+	}
+
+	status, _ = owner.callObservation(
+		t, observationBasePath+"/observations/manual-handoff", observationKeys[0], false,
+	)
+	if status != http.StatusForbidden {
+		t.Fatalf("manual handoff without CSRF status=%d", status)
+	}
+	status, _ = unrelatedUser.callObservation(
+		t, observationBasePath+"/observations/manual-handoff", observationKeys[1], true,
+	)
+	if status != http.StatusNotFound {
+		t.Fatalf("unrelated user record manual handoff status=%d", status)
+	}
+	status, _ = harness.agentCall(
+		t, harness.control.URL, http.MethodPost,
+		observationBasePath+"/observations/manual-handoff", primaryAgent.Token, map[string]any{},
+	)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("Agent record human observation status=%d", status)
+	}
+	status, _ = unrelatedUser.call(t, http.MethodGet, observationBasePath+"/pilot-metrics", nil, false)
+	if status != http.StatusNotFound {
+		t.Fatalf("unrelated user read pilot metrics status=%d", status)
+	}
+
+	status, firstHandoffBody := owner.callObservation(
+		t, observationBasePath+"/observations/manual-handoff", observationKeys[2], true,
+	)
+	if status != http.StatusCreated {
+		t.Fatalf("record first manual handoff status=%d", status)
+	}
+	var firstHandoff observation.Event
+	decodeBehaviorJSON(t, firstHandoffBody, &firstHandoff)
+	status, retryHandoffBody := owner.callObservation(
+		t, observationBasePath+"/observations/manual-handoff", observationKeys[2], true,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("retry first manual handoff status=%d", status)
+	}
+	var retryHandoff observation.Event
+	decodeBehaviorJSON(t, retryHandoffBody, &retryHandoff)
+	if firstHandoff.ID == "" || retryHandoff.ID != firstHandoff.ID {
+		t.Fatal("manual handoff idempotency retry did not return the original event")
+	}
+	status, secondHandoffBody := owner.callObservation(
+		t, observationBasePath+"/observations/manual-handoff", observationKeys[3], true,
+	)
+	if status != http.StatusCreated {
+		t.Fatalf("record second manual handoff status=%d", status)
+	}
+	status, followupBody := owner.callObservation(
+		t, observationBasePath+"/observations/approval-followup", observationKeys[4], true,
+	)
+	if status != http.StatusCreated {
+		t.Fatalf("record approval followup status=%d", status)
+	}
+	for _, body := range [][]byte{firstHandoffBody, retryHandoffBody, secondHandoffBody, followupBody} {
+		assertNoRuntimeValues(
+			t, body, harness.protectedValue, harness.vaultPath, harness.target.URL,
+			owner.password, owner.session, owner.csrf, primaryAgent.Token,
+		)
+	}
+
+	status, collectingMetricsBody := owner.call(t, http.MethodGet, observationBasePath+"/pilot-metrics", nil, false)
+	if status != http.StatusOK {
+		t.Fatalf("read collecting pilot metrics status=%d", status)
+	}
+	var collectingMetrics observation.Summary
+	decodeBehaviorJSON(t, collectingMetricsBody, &collectingMetrics)
+	if collectingMetrics.CaptureStatus != observation.CaptureActive ||
+		collectingMetrics.ManualHandoffCount == nil || *collectingMetrics.ManualHandoffCount != 2 ||
+		collectingMetrics.ApprovalFollowupCount == nil || *collectingMetrics.ApprovalFollowupCount != 1 ||
+		collectingMetrics.RequestToResultDurationMS != nil ||
+		collectingMetrics.ReviewStatus != observation.ReviewNotStarted ||
+		collectingMetrics.OperationReviewDurationMS != nil || collectingMetrics.ImprovementTargetPercent != nil {
+		t.Fatalf("collecting pilot metrics=%+v", collectingMetrics)
+	}
+	assertNoRuntimeValues(
+		t, collectingMetricsBody, harness.protectedValue, harness.vaultPath, harness.target.URL,
+		owner.password, owner.session, owner.csrf, primaryAgent.Token,
+	)
+
+	status, _ = owner.callObservation(t, observationBasePath+"/reviews", observationKeys[5], true)
+	if status != http.StatusConflict {
+		t.Fatalf("start review before execution status=%d", status)
+	}
 
 	status, _ = harness.agentCall(t, harness.execution.URL, http.MethodPost, "/v1/execute", primaryAgent.Token, map[string]any{
 		"request_id": requestID, "task_id": primaryTaskID,
@@ -216,9 +315,88 @@ func TestOrdinaryUserAndAgentCompleteApprovedOperationOnce(t *testing.T) {
 		)
 	}
 	assertNoRuntimeValues(t, executionBody, harness.protectedValue, primaryAgent.Token, unrelatedAgent.Token)
-	if duration := harness.requestToResultDuration(t, requestID); duration < 0 {
-		t.Fatalf("request-to-result duration=%s", duration)
+	requestToResultDuration := harness.requestToResultDuration(t, requestID)
+	if requestToResultDuration < 0 {
+		t.Fatalf("request-to-result duration=%s", requestToResultDuration)
 	}
+	expectedRequestToResultMS := requestToResultDuration.Milliseconds()
+
+	status, reviewStartedBody := owner.callObservation(t, observationBasePath+"/reviews", observationKeys[6], true)
+	if status != http.StatusCreated {
+		t.Fatalf("start completed operation review status=%d", status)
+	}
+	var reviewStarted observation.Event
+	decodeBehaviorJSON(t, reviewStartedBody, &reviewStarted)
+	if reviewStarted.Type != observation.EventReviewStarted || reviewStarted.ReviewSessionID == "" ||
+		reviewStarted.ReviewSessionID != reviewStarted.ID || reviewStarted.OccurredAt.IsZero() {
+		t.Fatalf("review start event=%+v", reviewStarted)
+	}
+	status, retryReviewStartedBody := owner.callObservation(
+		t, observationBasePath+"/reviews", observationKeys[6], true,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("retry completed operation review start status=%d", status)
+	}
+	var retryReviewStarted observation.Event
+	decodeBehaviorJSON(t, retryReviewStartedBody, &retryReviewStarted)
+	if retryReviewStarted.ID != reviewStarted.ID || retryReviewStarted.ReviewSessionID != reviewStarted.ReviewSessionID {
+		t.Fatal("review start idempotency retry did not return the original session")
+	}
+	reviewCompletePath := observationBasePath + "/reviews/" + reviewStarted.ReviewSessionID + "/complete"
+	status, reviewCompletedBody := owner.callObservation(t, reviewCompletePath, observationKeys[7], true)
+	if status != http.StatusCreated {
+		t.Fatalf("complete operation review status=%d", status)
+	}
+	var reviewCompleted observation.Event
+	decodeBehaviorJSON(t, reviewCompletedBody, &reviewCompleted)
+	if reviewCompleted.Type != observation.EventReviewCompleted ||
+		reviewCompleted.ReviewSessionID != reviewStarted.ReviewSessionID || reviewCompleted.OccurredAt.IsZero() ||
+		reviewCompleted.OccurredAt.Before(reviewStarted.OccurredAt) {
+		t.Fatalf("review completion event=%+v", reviewCompleted)
+	}
+	status, retryReviewCompletedBody := owner.callObservation(t, reviewCompletePath, observationKeys[7], true)
+	if status != http.StatusOK {
+		t.Fatalf("retry operation review completion status=%d", status)
+	}
+	var retryReviewCompleted observation.Event
+	decodeBehaviorJSON(t, retryReviewCompletedBody, &retryReviewCompleted)
+	if retryReviewCompleted.ID != reviewCompleted.ID {
+		t.Fatal("review completion idempotency retry did not return the original event")
+	}
+
+	status, pilotMetricsBody := owner.call(t, http.MethodGet, observationBasePath+"/pilot-metrics", nil, false)
+	if status != http.StatusOK {
+		t.Fatalf("read completed pilot metrics status=%d", status)
+	}
+	var pilotMetrics observation.Summary
+	decodeBehaviorJSON(t, pilotMetricsBody, &pilotMetrics)
+	expectedReviewDurationMS := reviewCompleted.OccurredAt.Sub(reviewStarted.OccurredAt).Milliseconds()
+	if pilotMetrics.RequestID != requestID || pilotMetrics.CaptureStatus != observation.CaptureActive ||
+		pilotMetrics.RequestToResultDurationMS == nil ||
+		*pilotMetrics.RequestToResultDurationMS != expectedRequestToResultMS ||
+		pilotMetrics.ManualHandoffCount == nil || *pilotMetrics.ManualHandoffCount != 2 ||
+		pilotMetrics.ApprovalFollowupCount == nil || *pilotMetrics.ApprovalFollowupCount != 1 ||
+		pilotMetrics.OperationReviewDurationMS == nil ||
+		*pilotMetrics.OperationReviewDurationMS != expectedReviewDurationMS ||
+		pilotMetrics.ReviewStatus != observation.ReviewCompleted || pilotMetrics.ReviewSessionID == nil ||
+		*pilotMetrics.ReviewSessionID != reviewStarted.ReviewSessionID || pilotMetrics.ImprovementTargetPercent != nil ||
+		!bytes.Contains(pilotMetricsBody, []byte(`"improvement_target_percent":null`)) {
+		t.Fatalf("completed pilot metrics=%+v", pilotMetrics)
+	}
+	for _, body := range [][]byte{
+		reviewStartedBody, retryReviewStartedBody, reviewCompletedBody, retryReviewCompletedBody,
+	} {
+		assertNoRuntimeValues(
+			t, body, harness.protectedValue, harness.vaultPath, harness.target.URL,
+			owner.password, owner.session, owner.csrf,
+			primaryAgent.Token, unrelatedUser.password, unrelatedUser.session, unrelatedUser.csrf, unrelatedAgent.Token,
+		)
+	}
+	assertNoRuntimeValues(
+		t, pilotMetricsBody, harness.protectedValue, harness.vaultPath, harness.target.URL,
+		owner.password, owner.session, owner.csrf,
+		primaryAgent.Token, unrelatedUser.password, unrelatedUser.session, unrelatedUser.csrf, unrelatedAgent.Token,
+	)
 
 	status, _ = harness.agentCall(t, harness.execution.URL, http.MethodPost, "/v1/execute", primaryAgent.Token, map[string]any{
 		"request_id": requestID, "task_id": primaryTaskID,
@@ -305,6 +483,17 @@ func actorJourneyByID(t *testing.T, id string) actorJourney {
 	}
 	t.Fatal("behavior journey data is missing an expected journey")
 	return actorJourney{}
+}
+
+func (actor *webActor) callObservation(
+	t *testing.T,
+	path, idempotencyKey string,
+	mutation bool,
+) (int, []byte) {
+	t.Helper()
+	headers := make(http.Header)
+	headers.Set("Idempotency-Key", idempotencyKey)
+	return actor.callWithHeaders(t, http.MethodPost, path, map[string]any{}, mutation, headers)
 }
 
 func beginBehaviorTask(t *testing.T, harness *behaviorHarness, token string) string {

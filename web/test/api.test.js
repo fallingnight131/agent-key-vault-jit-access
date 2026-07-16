@@ -45,6 +45,9 @@ describe('AKV API client', () => {
     [409, 'USERNAME_UNAVAILABLE', '用户名已被使用，请换一个'],
     [403, 'FORBIDDEN', '没有权限执行此操作'],
     [403, 'CSRF_REJECTED', '页面校验已过期，请刷新后重试'],
+    [400, 'INVALID_OBSERVATION', '观测记录格式无效，请刷新后重试'],
+    [409, 'OBSERVATION_REJECTED', '当前状态不能记录这项观测，请刷新后重试'],
+    [404, 'NOT_FOUND', '申请不存在或你无权查看'],
     [500, 'INTERNAL', '服务暂时不可用，请稍后重试'],
   ])('translates public API error %s', async (status, code, message) => {
     const api = createAPI({ fetchImpl: vi.fn().mockResolvedValue(response(status, { error: code })) })

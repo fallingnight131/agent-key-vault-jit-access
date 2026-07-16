@@ -73,16 +73,19 @@ func TestPilotMetricDataKeepsRealValuesUnknownAndHasNoImprovementTarget(t *testi
 			sources: []string{"authorization_requests.created_at", "executions.completed_at"},
 		},
 		"manual_handoff_count": {
-			label: "人工转交次数", unit: "count", status: "AWAITING_PILOT_CAPTURE",
-			required: []string{"manual_handoff"},
+			label: "人工转交次数", unit: "count", status: "PRODUCT_CAPTURE_AVAILABLE",
+			sources: []string{"request_observation_events.MANUAL_HANDOFF"},
 		},
 		"approval_followup_count": {
-			label: "审批补问次数", unit: "count", status: "AWAITING_PILOT_CAPTURE",
-			required: []string{"approval_followup"},
+			label: "审批补问次数", unit: "count", status: "PRODUCT_CAPTURE_AVAILABLE",
+			sources: []string{"request_observation_events.APPROVAL_FOLLOWUP"},
 		},
 		"operation_review_duration": {
-			label: "复盘一次操作所需时间", unit: "milliseconds", status: "AWAITING_PILOT_CAPTURE",
-			required: []string{"review_started", "review_completed"},
+			label: "复盘一次操作所需时间", unit: "milliseconds", status: "PRODUCT_CAPTURE_AVAILABLE",
+			sources: []string{
+				"request_observation_events.REVIEW_STARTED",
+				"request_observation_events.REVIEW_COMPLETED",
+			},
 		},
 	}
 	if len(data.Metrics) != len(expected) {

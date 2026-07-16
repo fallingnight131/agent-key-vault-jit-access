@@ -17,6 +17,7 @@ import (
 	"github.com/fallingnight/akv/internal/control"
 	"github.com/fallingnight/akv/internal/identity"
 	"github.com/fallingnight/akv/internal/lifecycle"
+	"github.com/fallingnight/akv/internal/observation"
 	"github.com/fallingnight/akv/internal/proxy"
 	"github.com/fallingnight/akv/internal/store"
 	"github.com/fallingnight/akv/internal/task"
@@ -84,6 +85,7 @@ func main() {
 		ApprovalReader: store.NewPostgreSQLWebRepository(database),
 		Approvals:      authorization.NewApprovalService(authorizationRepository),
 		Revocations:    lifecycleService,
+		Observations:   observation.NewService(store.NewPostgreSQLObservationRepository(database)),
 	}
 	server := control.NewServer(config, logger, runtime, webRuntime)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
